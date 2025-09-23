@@ -2,14 +2,17 @@ import asyncio
 import aiohttp
 import re
 import json
+import os
+import sys
+import argparse
 import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
 from lxml import etree
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from aiolimiter import AsyncLimiter
 
 class ManhuaguiScraper:
-    def __init__(self, base_url="https://www.manhuagui.com"):
+    def __init__(self, base_url="https://tw.manhuagui.com"):
         self.base_url = base_url
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
@@ -149,10 +152,59 @@ class ManhuaguiScraper:
         etree_doc = etree.ElementTree(root)
         return etree.tostring(etree_doc, pretty_print=True, xml_declaration=True, encoding='UTF-8').decode('utf-8')
 
+def parse_manga_url(url_input):
+    """
+    解析漫画URL输入，支持完整URL和漫画编号两种方式
+    :param url_input: 用户输入的URL或漫画编号
+    :return: 漫画的相对URL路径
+    """
+    # 如果是纯数字，认为是漫画编号，默认使用台湾站
+    if url_input.isdigit():
+        return f"/comic/{url_input}/"
+    
+    # 如果是完整URL，提取相对路径
+    if url_input.startswith(('http://', 'https://')):
+        parsed_url = urlparse(url_input)
+        if 'manhuagui.com' in parsed_url.netloc:
+            return parsed_url.path
+        else:
+            raise ValueError("URL必须是漫画柜网站的链接")
+    
+    # 如果已经是相对路径，直接返回
+    if url_input.startswith('/comic/'):
+        return url_input
+    
+    # 其他情况，尝试作为漫画编号处理
+    try:
+        comic_id = int(url_input)
+        return f"/comic/{comic_id}/"
+    except ValueError:
+        raise ValueError("请输入有效的漫画URL或漫画编号")
+
+def parse_arguments():
+    """解析命令行参数"""
+    parser = argparse.ArgumentParser(description='漫画柜漫画信息提取工具')
+    parser.add_argument('manga_url', 
+                       help='漫画URL或漫画编号。支持格式：\n'
+                            '1. 完整URL: https://tw.manhuagui.com/comic/36217/\n'
+                            '2. 相对URL: /comic/36217/\n'
+                            '3. 漫画编号: 36217 (默认使用台湾站)')
+    parser.add_argument('--limit', '-l', type=int, default=None,
+                       help='限制处理的章节数量（用于测试）')
+    return parser.parse_args()
+
 async def main():
+    # 解析命令行参数
+    args = parse_arguments()
+    
+    try:
+        manga_relative_url = parse_manga_url(args.manga_url)
+        print(f"解析的漫画URL: {manga_relative_url}")
+    except ValueError as e:
+        print(f"错误: {e}")
+        sys.exit(1)
+    
     scraper = ManhuaguiScraper()
-    # 替换成你想要爬取的漫画相对URL
-    manga_relative_url = "/comic/1055/"
     
     async with aiohttp.ClientSession() as session:
         print(f"开始提取漫画详细信息...")
@@ -175,15 +227,32 @@ async def main():
 
         print(f"找到 {len(chapters)} 个章节。")
         
-        for i, chapter in enumerate(chapters):
+        # 如果指定了限制，只处理指定数量的章节
+        if args.limit:
+            chapters = chapters[:args.limit]
+            print(f"限制处理前 {len(chapters)} 个章节。")
+            
+        
+        for i, chapter in enumerate(reversed(chapters)):
             full_chapter_url = urljoin(scraper.base_url, chapter['url'])
             print(f"正在处理章节：{chapter['title']} (URL: {full_chapter_url})")
 
-            xml_content = scraper.create_xml_file(manga_info, chapter['title'], i + 1, full_chapter_url)
-            file_name = f"chapter_{i+1}.xml"
-            with open(file_name, "w", encoding="utf-8") as f:
+            chapter_number = str(i + 1).zfill(3)
+
+            xml_content = scraper.create_xml_file(manga_info, chapter['title'], chapter_number, full_chapter_url)
+            
+            # 创建输出目录结构: outputs/漫画名/章节目录/xml
+            manga_name = manga_info.get('series', 'Unknown').replace('/', '_').replace('\\', '_').replace(':', '_').replace('*', '_').replace('?', '_').replace('"', '_').replace('<', '_').replace('>', '_').replace('|', '_')
+            chapter_name = chapter_number + '-' + chapter['title'].replace('/', '_').replace('\\', '_').replace(':', '_').replace('*', '_').replace('?', '_').replace('"', '_').replace('<', '_').replace('>', '_').replace('|', '_')
+            
+            # 创建完整的目录结构
+            output_dir = os.path.join("outputs", manga_name, chapter_name)
+            os.makedirs(output_dir, exist_ok=True)
+            
+            xml_file_path = os.path.join(output_dir, "ComicInfo.xml")
+            with open(xml_file_path, "w", encoding="utf-8") as f:
                 f.write(xml_content)
-            print(f"XML 文件已保存到 {file_name}")
+            print(f"XML 文件已保存到 {xml_file_path}")
 
             # 如果需要下载图片链接，可以取消下面这行的注释
             # pages = await scraper.get_page_list(chapter['url'], session)

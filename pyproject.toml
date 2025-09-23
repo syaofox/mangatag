@@ -8,6 +8,7 @@ dependencies = [
     "aiohttp",
     "aiolimiter",
     "beautifulsoup4",
+    "gradio>=5.46.1",
     "jsbeautifier",
     "lxml",
     "lzstring",

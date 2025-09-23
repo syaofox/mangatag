@@ -1,0 +1,454 @@
+import asyncio
+import os
+from urllib.parse import urljoin
+import gradio as gr
+from lxml import etree
+import zipfile
+
+from manhuagui import ManhuaguiScraper, parse_manga_url
+from update_xml_numbers import (
+    parse_prefix_number,
+    find_comicinfo_xml,
+    update_number_in_xml,
+)
+from update_archives_with_xml import (
+    discover_xmls,
+    list_archives,
+    best_match,
+    update_archive_with_xml,
+)
+
+
+async def run_scrape(manga_input: str, limit: int | None):
+    scraper = ManhuaguiScraper()
+    logs: list[str] = []
+
+    def log(msg: str):
+        logs.append(msg)
+        return "\n".join(logs)
+
+    try:
+        manga_relative_url = parse_manga_url(manga_input)
+        yield log(f"解析的漫画URL: {manga_relative_url}")
+    except Exception as e:
+        yield log(f"错误: {e}")
+        return
+
+    import aiohttp
+
+    async with aiohttp.ClientSession() as session:
+        yield log("开始提取漫画详细信息...")
+        manga_info = await scraper.get_manga_details(manga_relative_url, session)
+        if not manga_info:
+            yield log("漫画信息提取失败，请检查URL或网络连接。")
+            return
+
+        yield log("漫画信息提取成功。")
+        series = manga_info.get("series", "Unknown")
+        yield log(f"系列：{series}")
+        yield log(f"作者：{manga_info.get('writer','')}")
+
+        cover_url = manga_info.get('cover_url', '')
+        if cover_url:
+            manga_name = series.replace('/', '_').replace('\\', '_').replace(':', '_').replace('*', '_').replace('?', '_').replace('"', '_').replace('<', '_').replace('>', '_').replace('|', '_')
+            outputs_root = os.path.join("outputs", manga_name)
+            os.makedirs(outputs_root, exist_ok=True)
+
+            from urllib.parse import urlparse
+            parsed = urlparse(cover_url)
+            basename = os.path.basename(parsed.path)
+            ext = os.path.splitext(basename)[1] or ".jpg"
+            cover_path = os.path.join(outputs_root, f"cover{ext}")
+            ok = await scraper.download_cover(cover_url, cover_path, session)
+            if ok:
+                yield log(f"封面已保存到 {cover_path}")
+            else:
+                yield log("封面下载失败，继续处理章节...")
+
+        yield log("开始提取章节列表...")
+        chapters = await scraper.get_chapter_list(manga_relative_url, session)
+        if not chapters:
+            yield log("章节列表为空或提取失败。")
+            return
+
+        yield log(f"找到 {len(chapters)} 个章节。")
+        if limit:
+            chapters = chapters[:limit]
+            yield log(f"限制处理前 {len(chapters)} 个章节。")
+
+        for i, chapter in enumerate(reversed(chapters)):
+            full_chapter_url = urljoin(scraper.base_url, chapter['url'])
+            yield log(f"正在处理章节：{chapter['title']} (URL: {full_chapter_url})")
+            chapter_number = str(i + 1).zfill(3)
+            xml_content = scraper.create_xml_file(manga_info, chapter['title'], chapter_number, full_chapter_url)
+
+            manga_name = series.replace('/', '_').replace('\\', '_').replace(':', '_').replace('*', '_').replace('?', '_').replace('"', '_').replace('<', '_').replace('>', '_').replace('|', '_')
+            chapter_name = chapter_number + '-' + chapter['title'].replace('/', '_').replace('\\', '_').replace(':', '_').replace('*', '_').replace('?', '_').replace('"', '_').replace('<', '_').replace('>', '_').replace('|', '_')
+            output_dir = os.path.join("outputs", manga_name, chapter_name)
+            os.makedirs(output_dir, exist_ok=True)
+            xml_file_path = os.path.join(output_dir, "ComicInfo.xml")
+            with open(xml_file_path, "w", encoding="utf-8") as f:
+                f.write(xml_content)
+            yield log(f"XML 文件已保存到 {xml_file_path}")
+
+        yield log("所有章节的XML文件已生成。")
+
+
+async def ui_run(manga_input, limit):
+    limit_val = None
+    try:
+        if limit is not None and str(limit).strip() != "":
+            limit_val = int(limit)
+    except Exception:
+        limit_val = None
+
+    async for chunk in run_scrape(manga_input.strip(), limit_val):
+        yield chunk
+
+
+with gr.Blocks(title="MangaTag | Manhuagui") as demo:
+    with gr.Tabs():
+        with gr.Tab("抓取与生成XML"):
+            gr.Markdown("**MangaTag - 漫画柜抓取与XML生成**")
+            with gr.Row():
+                manga_input = gr.Textbox(label="漫画URL或编号", placeholder="如 https://tw.manhuagui.com/comic/1055/ 或 1055")
+                limit = gr.Number(label="限制章节数(可选)", precision=0)
+            run_btn = gr.Button("开始")
+            output = gr.Textbox(label="日志输出", lines=20)
+            run_btn.click(fn=ui_run, inputs=[manga_input, limit], outputs=output)
+
+        with gr.Tab("更新XML Number"):
+            gr.Markdown("**根据章节文件夹名更新 ComicInfo.xml 的 Number 字段**")
+            manga_dir_tb = gr.Textbox(label="漫画目录路径", placeholder="如 /home/user/dev/mangatag/outputs/漫画名")
+            with gr.Row():
+                dry_run_cb = gr.Checkbox(label="试运行(dry-run)", value=True)
+                verbose_cb = gr.Checkbox(label="详细日志(verbose)")
+            run_update_btn = gr.Button("更新 Number")
+            update_logs = gr.Textbox(label="处理日志", lines=20)
+
+            def ui_update_numbers(manga_dir: str, dry_run: bool, verbose: bool):
+                logs: list[str] = []
+
+                def log(msg: str):
+                    logs.append(msg)
+                    return "\n".join(logs)
+
+                if not manga_dir or not os.path.isdir(manga_dir):
+                    yield log(f"错误：目录不存在 -> {manga_dir}")
+                    return
+
+                chapter_dirs = [
+                    os.path.join(manga_dir, name)
+                    for name in os.listdir(manga_dir)
+                    if os.path.isdir(os.path.join(manga_dir, name))
+                ]
+
+                def sort_key(path: str):
+                    folder = os.path.basename(path)
+                    num = parse_prefix_number(folder)
+                    return (0, int(num)) if num is not None else (1, folder)
+
+                chapter_dirs.sort(key=sort_key)
+
+                total = 0
+                updated = 0
+
+                for chapter_dir in chapter_dirs:
+                    folder_name = os.path.basename(chapter_dir)
+                    prefix = parse_prefix_number(folder_name)
+                    if prefix is None:
+                        if verbose:
+                            yield log(f"跳过（无数字前缀）：{folder_name}")
+                        continue
+
+                    xml_path = find_comicinfo_xml(chapter_dir)
+                    if xml_path is None:
+                        if verbose:
+                            yield log(f"未找到 ComicInfo.xml：{chapter_dir}")
+                        continue
+
+                    total += 1
+                    if verbose or dry_run:
+                        yield log(f"将更新 Number -> {prefix}: {xml_path}")
+                    if update_number_in_xml(xml_path, prefix, dry_run=dry_run):
+                        updated += 1
+
+                yield log(f"处理完成：目标章节 {total}，成功更新 {updated}，dry-run={dry_run}")
+
+            run_update_btn.click(
+                fn=ui_update_numbers,
+                inputs=[manga_dir_tb, dry_run_cb, verbose_cb],
+                outputs=update_logs,
+            )
+
+        with gr.Tab("更新压缩包内XML"):
+            gr.Markdown("**将 XML 写入章节压缩包(.cbz/.zip) 根目录为 ComicInfo.xml**")
+            comic_dir_tb = gr.Textbox(label="章节压缩包目录(comic_dir)", placeholder="如 /path/to/comic/dir")
+            xml_root_tb = gr.Textbox(label="XML 输出根目录(xml_root)", placeholder="如 outputs/天漫浮世錄")
+            with gr.Row():
+                threshold_num = gr.Slider(label="匹配阈值 threshold", minimum=0.0, maximum=1.0, step=0.01, value=0.60)
+                strategy_dd = gr.Dropdown(label="匹配策略 strategy", choices=["both", "title", "folder"], value="both")
+            with gr.Row():
+                dry_run2 = gr.Checkbox(label="试运行(dry-run)", value=True)
+                force_cb = gr.Checkbox(label="存在则覆盖(force)")
+                verbose2 = gr.Checkbox(label="详细日志(verbose)")
+            run_archives_btn = gr.Button("写入/更新 ComicInfo.xml")
+            archives_logs = gr.Textbox(label="处理日志", lines=20)
+
+            def ui_update_archives(comic_dir: str, xml_root: str, threshold: float, dry_run: bool, force: bool, verbose: bool, strategy: str):
+                logs: list[str] = []
+
+                def log(msg: str):
+                    logs.append(msg)
+                    return "\n".join(logs)
+
+                if not comic_dir or not os.path.isdir(comic_dir):
+                    yield log(f"错误：章节目录不存在 -> {comic_dir}")
+                    return
+                if not xml_root or not os.path.isdir(xml_root):
+                    yield log(f"错误：XML 目录不存在 -> {xml_root}")
+                    return
+
+                xml_items = discover_xmls(xml_root)
+                if not xml_items:
+                    yield log("未发现任何 XML（ComicInfo.xml）。")
+                    return
+
+                archives = list_archives(comic_dir)
+                if not archives:
+                    yield log("未发现任何章节压缩包（.cbz/.zip）。")
+                    return
+
+                if verbose:
+                    yield log(f"发现 XML 数量：{len(xml_items)}；压缩包数量：{len(archives)}")
+
+                success = 0
+                total = 0
+                used_archives: set[str] = set()
+
+                for title, xml_path, chapter_folder in xml_items:
+                    chosen_path = None
+                    chosen_score = 0.0
+                    chosen_basis = ""
+
+                    if strategy in ("title", "both"):
+                        p, s = best_match(title, archives)
+                        if s > chosen_score:
+                            chosen_path, chosen_score, chosen_basis = p, s, "title"
+
+                    if strategy in ("folder", "both"):
+                        p2, s2 = best_match(chapter_folder, archives)
+                        if s2 > chosen_score:
+                            chosen_path, chosen_score, chosen_basis = p2, s2, "folder"
+
+                    if chosen_path is None or chosen_score < float(threshold):
+                        if verbose:
+                            yield log(f"跳过：无匹配或分数过低（{chosen_score:.2f}） -> Title='{title}', Folder='{chapter_folder}'")
+                        continue
+
+                    total += 1
+                    if chosen_path in used_archives:
+                        if verbose:
+                            yield log(f"跳过：目标压缩包已被占用 -> {os.path.basename(chosen_path)} | Title='{title}', Folder='{chapter_folder}'")
+                        continue
+
+                    if verbose or dry_run:
+                        basis_desc = "标题" if chosen_basis == "title" else "章节文件夹名"
+                        yield log(f"匹配成功（{chosen_score:.2f}, 基于{basis_desc}）：'{title}' | '{chapter_folder}' -> {os.path.basename(chosen_path)}")
+
+                    if update_archive_with_xml(chosen_path, xml_path, dry_run=dry_run, force=force):
+                        success += 1
+                        used_archives.add(chosen_path)
+
+                yield log(f"处理完成：发现{len(xml_items)}个XML，匹配目标 {total}，成功更新 {success}，dry-run={dry_run}, 阈值={float(threshold):.2f}")
+
+            run_archives_btn.click(
+                fn=ui_update_archives,
+                inputs=[comic_dir_tb, xml_root_tb, threshold_num, dry_run2, force_cb, verbose2, strategy_dd],
+                outputs=archives_logs,
+            )
+
+        with gr.Tab("编辑压缩包内XML"):
+            gr.Markdown("**扫描目录中的 .cbz/.zip，读取 ComicInfo.xml 后在下方表格中自由修改并保存回压缩包**")
+            edit_dir_tb = gr.Textbox(label="章节压缩包目录", placeholder="如 /path/to/comic/dir")
+            scan_btn = gr.Button("扫描目录并读取 ComicInfo.xml")
+            data_df = gr.Dataframe(
+                headers=[
+                    "archive_path",
+                    "file_name",
+                    "Title",
+                    "Series",
+                    "Number",
+                    "Summary",
+                    "Writer",
+                    "Genre",
+                    "Web",
+                    "PublishingStatusTachiyomi",
+                    "SourceMihon",
+                ],
+                interactive=True,
+                wrap=True,
+                row_count=(0, "dynamic"),
+            )
+            save_btn = gr.Button("保存修改到压缩包")
+            save_logs = gr.Textbox(label="保存日志", lines=16)
+
+            def _read_xml_from_archive(archive_path: str):
+                try:
+                    with zipfile.ZipFile(archive_path, "r") as zf:
+                        # 允许大小写差异，但优先严格匹配
+                        target_name = None
+                        for info in zf.infolist():
+                            if info.filename == "ComicInfo.xml":
+                                target_name = info.filename
+                                break
+                        if target_name is None:
+                            for info in zf.infolist():
+                                if info.filename.lower() == "comicinfo.xml":
+                                    target_name = info.filename
+                                    break
+                        if target_name is None:
+                            return None
+                        data = zf.read(target_name)
+                        return data
+                except Exception:
+                    return None
+
+            def _parse_xml_fields(xml_bytes: bytes):
+                try:
+                    root = etree.fromstring(xml_bytes)
+                    def get(tag):
+                        elem = root.find(tag)
+                        return (elem.text or "").strip() if elem is not None and elem.text else ""
+                    return {
+                        "Title": get("Title"),
+                        "Series": get("Series"),
+                        "Number": get("Number"),
+                        "Summary": get("Summary"),
+                        "Writer": get("Writer"),
+                        "Genre": get("Genre"),
+                        "Web": get("Web"),
+                        "PublishingStatusTachiyomi": get("PublishingStatusTachiyomi"),
+                        "SourceMihon": get("SourceMihon"),
+                    }
+                except Exception:
+                    return {
+                        "Title": "",
+                        "Series": "",
+                        "Number": "",
+                        "Summary": "",
+                        "Writer": "",
+                        "Genre": "",
+                        "Web": "",
+                        "PublishingStatusTachiyomi": "",
+                        "SourceMihon": "",
+                    }
+
+            def _build_xml_from_fields(fields: dict) -> bytes:
+                root = etree.Element("ComicInfo")
+                for tag in [
+                    "Title",
+                    "Series",
+                    "Number",
+                    "Summary",
+                    "Writer",
+                    "Genre",
+                    "Web",
+                    "PublishingStatusTachiyomi",
+                    "SourceMihon",
+                ]:
+                    val = (fields.get(tag) or "").strip()
+                    etree.SubElement(root, tag).text = val
+                tree = etree.ElementTree(root)
+                return etree.tostring(tree, pretty_print=True, xml_declaration=True, encoding="UTF-8")
+
+            def _write_xml_to_archive(archive_path: str, xml_bytes: bytes) -> bool:
+                try:
+                    with zipfile.ZipFile(archive_path, "r") as zf:
+                        dir_name = os.path.dirname(archive_path)
+                        fd, tmp_path = tempfile.mkstemp(suffix=".zip", prefix="tmp_edit_", dir=dir_name)
+                        os.close(fd)
+                        try:
+                            with zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED) as zfw:
+                                for info in zf.infolist():
+                                    if info.filename.lower() == "comicinfo.xml":
+                                        continue
+                                    data = zf.read(info.filename)
+                                    zfw.writestr(info, data)
+                                zfw.writestr("ComicInfo.xml", xml_bytes)
+                            os.replace(tmp_path, archive_path)
+                            return True
+                        finally:
+                            if os.path.exists(tmp_path):
+                                try:
+                                    os.remove(tmp_path)
+                                except Exception:
+                                    pass
+                except Exception:
+                    return False
+
+            import tempfile
+
+            def scan_archives(comic_dir: str):
+                rows = []
+                if not comic_dir or not os.path.isdir(comic_dir):
+                    return rows
+                archives = list_archives(comic_dir)
+                for ap in archives:
+                    xml_bytes = _read_xml_from_archive(ap)
+                    if xml_bytes is None:
+                        continue
+                    fields = _parse_xml_fields(xml_bytes)
+                    rows.append([
+                        ap,
+                        os.path.basename(ap),
+                        fields["Title"],
+                        fields["Series"],
+                        fields["Number"],
+                        fields["Summary"],
+                        fields["Writer"],
+                        fields["Genre"],
+                        fields["Web"],
+                        fields["PublishingStatusTachiyomi"],
+                        fields["SourceMihon"],
+                    ])
+                return rows
+
+            def save_archives(edited_table):
+                logs = []
+                if not edited_table:
+                    return "无可保存的内容"
+                for row in edited_table:
+                    try:
+                        archive_path = row[0]
+                        fields = {
+                            "Title": row[2],
+                            "Series": row[3],
+                            "Number": row[4],
+                            "Summary": row[5],
+                            "Writer": row[6],
+                            "Genre": row[7],
+                            "Web": row[8],
+                            "PublishingStatusTachiyomi": row[9],
+                            "SourceMihon": row[10],
+                        }
+                        xml_bytes = _build_xml_from_fields(fields)
+                        ok = _write_xml_to_archive(archive_path, xml_bytes)
+                        if ok:
+                            logs.append(f"已保存: {os.path.basename(archive_path)}")
+                        else:
+                            logs.append(f"失败: {os.path.basename(archive_path)}")
+                    except Exception as e:
+                        logs.append(f"异常: {e}")
+                return "\n".join(logs)
+
+            scan_btn.click(fn=scan_archives, inputs=edit_dir_tb, outputs=data_df)
+            save_btn.click(fn=save_archives, inputs=data_df, outputs=save_logs)
+
+
+if __name__ == "__main__":
+    import os
+    port = int(os.environ.get("GRADIO_SERVER_PORT", "7861") or 7861)
+    demo.launch(server_name="0.0.0.0", server_port=port)
+
+

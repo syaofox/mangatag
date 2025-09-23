@@ -5,3 +5,4 @@ lzstring
 jsbeautifier
 aiohttp
 aiolimiter
+gradio

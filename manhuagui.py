@@ -1,0 +1,198 @@
+import asyncio
+import aiohttp
+import re
+import json
+import xml.etree.ElementTree as ET
+from bs4 import BeautifulSoup
+from lxml import etree
+from urllib.parse import urljoin
+from aiolimiter import AsyncLimiter
+
+class ManhuaguiScraper:
+    def __init__(self, base_url="https://www.manhuagui.com"):
+        self.base_url = base_url
+        self.headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+            "Referer": self.base_url,
+            "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"
+        }
+        # 设置限速器：每 10 秒 2 个请求
+        self.limiter = AsyncLimiter(2, 10)
+        self.image_server = ["https://i.hamreus.com", "https://cf.hamreus.com"]
+
+    async def _get_document(self, url, session):
+        """异步获取并解析网页文档，并应用速率限制"""
+        async with self.limiter:
+            try:
+                async with session.get(url, headers=self.headers, timeout=15) as response:
+                    response.raise_for_status()
+                    html_content = await response.text()
+                    return BeautifulSoup(html_content, 'html.parser')
+            except aiohttp.ClientError as e:
+                print(f"请求 {url} 失败: {e}")
+                return None
+
+    async def get_manga_details(self, manga_url, session):
+        """
+        异步提取漫画的详细信息（标题、作者、类型等）。
+        :param manga_url: 漫画详情页的URL。
+        :return: 包含漫画信息的字典。
+        """
+        doc = await self._get_document(urljoin(self.base_url, manga_url), session)
+        if not doc:
+            return None
+
+        details = {}
+        details['series'] = doc.select_one("div.book-title h1").text.strip()
+        details['summary'] = doc.select_one("div#intro-all").text.strip()
+        
+        author_element = doc.select_one("span:contains('漫画作者'), span:contains('漫畫作者')")
+        if author_element:
+            details['writer'] = ", ".join([a.text.strip() for a in author_element.parent.select("a")])
+        else:
+            details['writer'] = ""
+
+        genre_element = doc.select_one("span:contains('漫画剧情'), span:contains('漫畫劇情')")
+        if genre_element:
+            details['genre'] = ", ".join([a.text.strip() for a in genre_element.parent.select("a")])
+        else:
+            details['genre'] = ""
+        
+        status_text = doc.select_one("div.book-detail > ul.detail-list > li.status > span > span").text
+        details['status'] = "Ongoing" if "连载中" in status_text or "連載中" in status_text else "Completed"
+        
+        return details
+
+    async def get_chapter_list(self, manga_url, session):
+        """
+        异步提取漫画的章节列表。
+        :param manga_url: 漫画详情页的URL。
+        :return: 章节列表，每个章节是一个包含URL和名称的字典。
+        """
+        doc = await self._get_document(urljoin(self.base_url, manga_url), session)
+        if not doc:
+            return []
+
+        chapters = []
+        # 查找章节区域
+        chapter_div = doc.find('div', class_='chapter')
+        if chapter_div:
+            # 查找所有章节链接
+            chapter_links = chapter_div.find_all('a')
+            for chapter_link in chapter_links:
+                href = chapter_link.get('href')
+                if href and href.startswith('/comic/'):
+                    chapter = {}
+                    chapter['url'] = href
+                    chapter['title'] = chapter_link.get_text().strip()
+                    chapters.append(chapter)
+        
+        return chapters
+
+    async def get_page_list(self, chapter_url, session):
+        """
+        异步解析章节页面，解密并提取图片链接。
+        :param chapter_url: 章节页面的URL。
+        :return: 包含所有图片URL的列表。
+        """
+        doc = await self._get_document(urljoin(self.base_url, chapter_url), session)
+        if not doc:
+            return []
+
+        # Find the packed JavaScript code
+        html_content = str(doc)
+        
+        # Use a more robust regex to find the JSON data directly
+        img_json_match = re.search(r"JSON\.parse\(\s*Unpacker\.unpack\(.*?'(.*?)'.*\)\s*\)", html_content)
+        if not img_json_match:
+            img_json_match = re.search(r"var\s*p\s*=\s*'(.+?)'", html_content)
+            
+        if img_json_match:
+            packed_data = img_json_match.group(1)
+            try:
+                unpacked_json_str = packed_data.replace('\\"', '"').replace('\\\\', '\\')
+                json_content = re.search(r"\{.*?\}", unpacked_json_str)
+                if json_content:
+                    image_json = json.loads(json_content.group(0))
+                    if 'files' in image_json and 'path' in image_json:
+                        files = image_json['files']
+                        path = image_json['path']
+                        pages = []
+                        sl = image_json.get('sl', {})
+                        for img_file in files:
+                            img_url = f"{self.image_server[0]}{path}{img_file}?e={sl.get('e')}&m={sl.get('m')}"
+                            pages.append(img_url)
+                        return pages
+            except json.JSONDecodeError as e:
+                print(f"JSON 解码失败: {e}")
+                
+        return []
+    
+    def create_xml_file(self, manga_details, chapter_title, chapter_number, chapter_url):
+        """
+        根据提取的信息创建XML文件。
+        :return: XML文件的字符串表示。
+        """
+        # 创建根元素，不使用命名空间属性
+        root = etree.Element("ComicInfo")
+        
+        etree.SubElement(root, "Title").text = chapter_title
+        etree.SubElement(root, "Series").text = manga_details.get('series', '')
+        etree.SubElement(root, "Number").text = str(chapter_number)
+        etree.SubElement(root, "Summary").text = manga_details.get('summary', '')
+        etree.SubElement(root, "Writer").text = manga_details.get('writer', '')
+        etree.SubElement(root, "Genre").text = manga_details.get('genre', '')
+        etree.SubElement(root, "Web").text = chapter_url
+        etree.SubElement(root, "PublishingStatusTachiyomi").text = manga_details.get('status', 'Unknown')
+        etree.SubElement(root, "SourceMihon").text = "漫画柜"
+
+        etree_doc = etree.ElementTree(root)
+        return etree.tostring(etree_doc, pretty_print=True, xml_declaration=True, encoding='UTF-8').decode('utf-8')
+
+async def main():
+    scraper = ManhuaguiScraper()
+    # 替换成你想要爬取的漫画相对URL
+    manga_relative_url = "/comic/1055/"
+    
+    async with aiohttp.ClientSession() as session:
+        print(f"开始提取漫画详细信息...")
+        manga_info = await scraper.get_manga_details(manga_relative_url, session)
+        
+        if not manga_info:
+            print("漫画信息提取失败，请检查URL或网络连接。")
+            return
+
+        print("漫画信息提取成功。")
+        print(f"系列：{manga_info['series']}")
+        print(f"作者：{manga_info['writer']}")
+        print("-" * 20)
+        
+        print(f"开始提取章节列表...")
+        chapters = await scraper.get_chapter_list(manga_relative_url, session)
+        if not chapters:
+            print("章节列表为空或提取失败。")
+            return
+
+        print(f"找到 {len(chapters)} 个章节。")
+        
+        for i, chapter in enumerate(chapters):
+            full_chapter_url = urljoin(scraper.base_url, chapter['url'])
+            print(f"正在处理章节：{chapter['title']} (URL: {full_chapter_url})")
+
+            xml_content = scraper.create_xml_file(manga_info, chapter['title'], i + 1, full_chapter_url)
+            file_name = f"chapter_{i+1}.xml"
+            with open(file_name, "w", encoding="utf-8") as f:
+                f.write(xml_content)
+            print(f"XML 文件已保存到 {file_name}")
+
+            # 如果需要下载图片链接，可以取消下面这行的注释
+            # pages = await scraper.get_page_list(chapter['url'], session)
+            # print(f"章节图片数量：{len(pages)}")
+
+            print("-" * 20)
+            
+        print("所有章节的XML文件已生成。")
+
+if __name__ == '__main__':
+    # 运行异步主函数
+    asyncio.run(main())

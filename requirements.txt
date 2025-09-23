@@ -1,0 +1,7 @@
+requests
+beautifulsoup4
+lxml
+lzstring
+jsbeautifier
+aiohttp
+aiolimiter

@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 from lxml import etree
 from urllib.parse import urljoin, urlparse
 from aiolimiter import AsyncLimiter
+from lzstring import LZString
 
 class ManhuaguiScraper:
     def __init__(self, base_url="https://tw.manhuagui.com"):
@@ -22,6 +23,60 @@ class ManhuaguiScraper:
         # 设置限速器：每 10 秒 2 个请求
         self.limiter = AsyncLimiter(2, 10)
         self.image_server = ["https://i.hamreus.com", "https://cf.hamreus.com"]
+
+        # 尝试加载本地 Cookie 文件以模拟登录
+        self._load_cookies_into_headers()
+        # 确保注入 R18 验证 Cookie
+        self._ensure_r18_cookie()
+
+    def _load_cookies_into_headers(self):
+        """从 config/cookies.json 读取 Cookie 并注入到默认请求头。"""
+        try:
+            config_dir = os.path.join(os.path.dirname(__file__), "config")
+            cookies_path = os.path.join(config_dir, "cookies.json")
+            if not os.path.exists(cookies_path):
+                return
+
+            with open(cookies_path, "r", encoding="utf-8") as f:
+                cookie_map = json.load(f)
+
+            if not isinstance(cookie_map, dict) or not cookie_map:
+                return
+
+            base_host = urlparse(self.base_url).netloc or ""
+            # 选择与 base_url 最匹配的域（最长匹配优先）
+            matched_key = None
+            for key in sorted(cookie_map.keys(), key=lambda k: len(k), reverse=True):
+                if base_host == key or base_host.endswith(key):
+                    matched_key = key
+                    break
+
+            # 若未匹配到，退而求其次使用第一个键值
+            if matched_key is None:
+                matched_key = next(iter(cookie_map.keys()))
+
+            cookie_str = cookie_map.get(matched_key, "").strip()
+            if cookie_str:
+                # 直接通过 Cookie 头注入，适用于 aiohttp 每次请求
+                self.headers["Cookie"] = cookie_str
+        except Exception as e:
+            # 读取失败时忽略，不中断主流程
+            print(f"加载 Cookie 失败: {e}")
+
+    def _ensure_r18_cookie(self):
+        """确保在请求头 Cookie 中包含 isAdult=1 以通过 R18 验证。"""
+        try:
+            cookie_header = self.headers.get("Cookie", "").strip()
+            # 若已存在 isAdult=1 则不重复添加
+            if "isAdult=1" not in cookie_header:
+                if cookie_header:
+                    cookie_header = f"{cookie_header}; isAdult=1"
+                else:
+                    cookie_header = "isAdult=1"
+                self.headers["Cookie"] = cookie_header
+        except Exception:
+            # 任何异常都不阻塞主流程
+            pass
 
     async def _get_document(self, url, session):
         """异步获取并解析网页文档，并应用速率限制"""
@@ -45,9 +100,17 @@ class ManhuaguiScraper:
         if not doc:
             return None
 
+        print(doc)
         details = {}
         details['series'] = doc.select_one("div.book-title h1").text.strip()
         details['summary'] = doc.select_one("div#intro-all").text.strip()
+        # 封面图片 URL（优先 src，其次 data-src），保留为绝对或相对，之后统一 urljoin
+        cover_img = doc.select_one("p.hcover > img")
+        details['cover_url'] = ""
+        if cover_img:
+            cover_src = cover_img.get('src') or cover_img.get('data-src') or ""
+            if cover_src:
+                details['cover_url'] = urljoin(self.base_url, cover_src)
         
         # 作者：限制在同一 li 节点内，并仅选择指向 /author/ 的链接
         author_element = doc.select_one("span:contains('漫画作者'), span:contains('漫畫作者')")
@@ -84,28 +147,63 @@ class ManhuaguiScraper:
         if not doc:
             return []
 
+        # 优先处理隐藏的加密章节列表：input#__VIEWSTATE（LZString Base64）
+        try:
+            viewstate_input = doc.select_one("input#__VIEWSTATE")
+            if viewstate_input and viewstate_input.get('value'):
+                encoded = viewstate_input.get('value') or ""
+                decoded_html = LZString().decompressFromBase64(encoded) or ""
+                if decoded_html:
+                    hidden_doc = BeautifulSoup(decoded_html, 'html.parser')
+                    extracted = self._extract_chapters_from_document(hidden_doc)
+                    if extracted:
+                        return extracted
+        except Exception as e:
+            # 解码失败则回退到普通解析
+            pass
+
+        # 常规页面直接解析
+        extracted = self._extract_chapters_from_document(doc)
+        if extracted:
+            return extracted
+
+        # 最后回退到旧的 div.chapter 结构（兼容历史页面）
         chapters = []
-        # 查找章节区域
         chapter_div = doc.find('div', class_='chapter')
         if chapter_div:
-            # 查找所有章节链接
-            chapter_links = chapter_div.find_all('a')
-            for chapter_link in chapter_links:
+            for chapter_link in chapter_div.find_all('a'):
                 href = chapter_link.get('href')
-                if href and href.startswith('/comic/'):
-                    title_attr = chapter_link.get('title')
-                    if title_attr:
-                        chapter_title = title_attr.strip()
-                    else:
-                        # 回退：优先 span 文本，否则 a 的可见文本
-                        span = chapter_link.find('span')
-                        chapter_title = (span.get_text().strip() if span and span.get_text() else chapter_link.get_text().strip())
+                if not href:
+                    continue
+                title_attr = chapter_link.get('title')
+                if title_attr and title_attr.strip():
+                    chapter_title = title_attr.strip()
+                else:
+                    span = chapter_link.find('span')
+                    chapter_title = (span.get_text().strip() if span and span.get_text() else chapter_link.get_text().strip())
+                chapters.append({'url': href, 'title': chapter_title})
+        return chapters
 
-                    chapter = {}
-                    chapter['url'] = href
-                    chapter['title'] = chapter_title
-                    chapters.append(chapter)
-        
+    def _extract_chapters_from_document(self, document: BeautifulSoup):
+        """从标准章节列表结构提取章节：#chapter-list-* -> ul -> li > a.status0"""
+        chapters = []
+        section_list = document.select("[id^=chapter-list-]")
+        if section_list:
+            for section in section_list:
+                page_lists = section.select("ul")
+                page_lists.reverse()
+                for page in page_lists:
+                    for a in page.select("li > a.status0"):
+                        href = a.get('href')
+                        if not href:
+                            continue
+                        title_attr = a.get('title')
+                        if title_attr and title_attr.strip():
+                            name = title_attr.strip()
+                        else:
+                            span = a.find('span')
+                            name = (span.get_text().strip() if span and span.get_text() else a.get_text().strip())
+                        chapters.append({'url': href, 'title': name})
         return chapters
 
     async def get_page_list(self, chapter_url, session):
@@ -146,6 +244,23 @@ class ManhuaguiScraper:
                 print(f"JSON 解码失败: {e}")
                 
         return []
+
+    async def download_cover(self, cover_url: str, dest_path: str, session) -> bool:
+        """下载封面图片到指定路径。返回是否成功。"""
+        if not cover_url:
+            return False
+        try:
+            async with self.limiter:
+                async with session.get(cover_url, headers=self.headers, timeout=20) as resp:
+                    resp.raise_for_status()
+                    content = await resp.read()
+                    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                    with open(dest_path, 'wb') as f:
+                        f.write(content)
+            return True
+        except Exception as e:
+            print(f"下载封面失败: {e}")
+            return False
     
     def create_xml_file(self, manga_details, chapter_title, chapter_number, chapter_url):
         """
@@ -234,6 +349,23 @@ async def main():
         print(f"系列：{manga_info['series']}")
         print(f"作者：{manga_info['writer']}")
         print("-" * 20)
+
+        # 下载封面到 outputs/漫画名/cover.<扩展名>
+        cover_url = manga_info.get('cover_url', '')
+        if cover_url:
+            manga_name = manga_info.get('series', 'Unknown').replace('/', '_').replace('\\', '_').replace(':', '_').replace('*', '_').replace('?', '_').replace('"', '_').replace('<', '_').replace('>', '_').replace('|', '_')
+            outputs_root = os.path.join("outputs", manga_name)
+            os.makedirs(outputs_root, exist_ok=True)
+            # 从 URL 推断扩展名
+            parsed = urlparse(cover_url)
+            basename = os.path.basename(parsed.path)
+            ext = os.path.splitext(basename)[1] or ".jpg"
+            cover_path = os.path.join(outputs_root, f"cover{ext}")
+            ok = await scraper.download_cover(cover_url, cover_path, session)
+            if ok:
+                print(f"封面已保存到 {cover_path}")
+            else:
+                print("封面下载失败，继续处理章节...")
         
         print(f"开始提取章节列表...")
         chapters = await scraper.get_chapter_list(manga_relative_url, session)

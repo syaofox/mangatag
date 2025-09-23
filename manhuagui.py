@@ -49,17 +49,25 @@ class ManhuaguiScraper:
         details['series'] = doc.select_one("div.book-title h1").text.strip()
         details['summary'] = doc.select_one("div#intro-all").text.strip()
         
+        # 作者：限制在同一 li 节点内，并仅选择指向 /author/ 的链接
         author_element = doc.select_one("span:contains('漫画作者'), span:contains('漫畫作者')")
+        details['writer'] = ""
         if author_element:
-            details['writer'] = ", ".join([a.text.strip() for a in author_element.parent.select("a")])
-        else:
-            details['writer'] = ""
+            author_li = author_element.find_parent("li")
+            if author_li:
+                author_links = [a for a in author_li.select("a") if (a.get('href') or '').startswith('/author/')]
+                if author_links:
+                    details['writer'] = ", ".join(a.text.strip() for a in author_links)
 
-        genre_element = doc.select_one("span:contains('漫画剧情'), span:contains('漫畫劇情')")
+        # 类型/剧情：限制在同一 li 节点内，并仅选择指向 /list/ 的链接
+        genre_element = doc.select_one("span:contains('漫画剧情'), span:contains('漫畫劇情'), span:contains('漫画類型'), span:contains('漫畫類型')")
+        details['genre'] = ""
         if genre_element:
-            details['genre'] = ", ".join([a.text.strip() for a in genre_element.parent.select("a")])
-        else:
-            details['genre'] = ""
+            genre_li = genre_element.find_parent("li")
+            if genre_li:
+                genre_links = [a for a in genre_li.select("a") if (a.get('href') or '').startswith('/list/')]
+                if genre_links:
+                    details['genre'] = ", ".join(a.text.strip() for a in genre_links)
         
         status_text = doc.select_one("div.book-detail > ul.detail-list > li.status > span > span").text
         details['status'] = "Ongoing" if "连载中" in status_text or "連載中" in status_text else "Completed"
@@ -85,9 +93,17 @@ class ManhuaguiScraper:
             for chapter_link in chapter_links:
                 href = chapter_link.get('href')
                 if href and href.startswith('/comic/'):
+                    title_attr = chapter_link.get('title')
+                    if title_attr:
+                        chapter_title = title_attr.strip()
+                    else:
+                        # 回退：优先 span 文本，否则 a 的可见文本
+                        span = chapter_link.find('span')
+                        chapter_title = (span.get_text().strip() if span and span.get_text() else chapter_link.get_text().strip())
+
                     chapter = {}
                     chapter['url'] = href
-                    chapter['title'] = chapter_link.get_text().strip()
+                    chapter['title'] = chapter_title
                     chapters.append(chapter)
         
         return chapters

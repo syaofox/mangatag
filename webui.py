@@ -5,7 +5,8 @@ import gradio as gr
 from lxml import etree
 import zipfile
 
-from manhuagui import ManhuaguiScraper, parse_manga_url
+from manhuagui import ManhuaguiScraper, parse_manga_url as parse_mh_url
+from baozimanhua import BaoziScraper, parse_manga_url as parse_bz_url
 from update_xml_numbers import (
     parse_prefix_number,
     find_comicinfo_xml,
@@ -19,8 +20,16 @@ from update_archives_with_xml import (
 )
 
 
-async def run_scrape(manga_input: str, limit: int | None):
-    scraper = ManhuaguiScraper()
+async def run_scrape(site: str, manga_input: str, limit: int | None):
+    # 选择站点与解析器
+    if site == "Baozimh":
+        scraper = BaoziScraper()
+        parse_url = parse_bz_url
+        site_label = "包子漫画"
+    else:
+        scraper = ManhuaguiScraper()
+        parse_url = parse_mh_url
+        site_label = "漫画柜"
     logs: list[str] = []
 
     def log(msg: str):
@@ -28,8 +37,8 @@ async def run_scrape(manga_input: str, limit: int | None):
         return "\n".join(logs)
 
     try:
-        manga_relative_url = parse_manga_url(manga_input)
-        yield log(f"解析的漫画URL: {manga_relative_url}")
+        manga_relative_url = parse_url(manga_input)
+        yield log(f"[{site_label}] 解析的漫画URL: {manga_relative_url}")
     except Exception as e:
         yield log(f"错误: {e}")
         return
@@ -37,13 +46,13 @@ async def run_scrape(manga_input: str, limit: int | None):
     import aiohttp
 
     async with aiohttp.ClientSession() as session:
-        yield log("开始提取漫画详细信息...")
+        yield log(f"[{site_label}] 开始提取漫画详细信息...")
         manga_info = await scraper.get_manga_details(manga_relative_url, session)
         if not manga_info:
-            yield log("漫画信息提取失败，请检查URL或网络连接。")
+            yield log(f"[{site_label}] 漫画信息提取失败，请检查URL或网络连接。")
             return
 
-        yield log("漫画信息提取成功。")
+        yield log(f"[{site_label}] 漫画信息提取成功。")
         series = manga_info.get("series", "Unknown")
         yield log(f"系列：{series}")
         yield log(f"作者：{manga_info.get('writer','')}")
@@ -63,22 +72,22 @@ async def run_scrape(manga_input: str, limit: int | None):
             if ok:
                 yield log(f"封面已保存到 {cover_path}")
             else:
-                yield log("封面下载失败，继续处理章节...")
+                yield log(f"[{site_label}] 封面下载失败，继续处理章节...")
 
-        yield log("开始提取章节列表...")
+        yield log(f"[{site_label}] 开始提取章节列表...")
         chapters = await scraper.get_chapter_list(manga_relative_url, session)
         if not chapters:
-            yield log("章节列表为空或提取失败。")
+            yield log(f"[{site_label}] 章节列表为空或提取失败。")
             return
 
-        yield log(f"找到 {len(chapters)} 个章节。")
+        yield log(f"[{site_label}] 找到 {len(chapters)} 个章节。")
         if limit:
             chapters = chapters[:limit]
-            yield log(f"限制处理前 {len(chapters)} 个章节。")
+            yield log(f"[{site_label}] 限制处理前 {len(chapters)} 个章节。")
 
         for i, chapter in enumerate(reversed(chapters)):
             full_chapter_url = urljoin(scraper.base_url, chapter['url'])
-            yield log(f"正在处理章节：{chapter['title']} (URL: {full_chapter_url})")
+            yield log(f"[{site_label}] 正在处理章节：{chapter['title']} (URL: {full_chapter_url})")
             chapter_number = str(i + 1).zfill(3)
             xml_content = scraper.create_xml_file(manga_info, chapter['title'], chapter_number, full_chapter_url)
 
@@ -89,12 +98,12 @@ async def run_scrape(manga_input: str, limit: int | None):
             xml_file_path = os.path.join(output_dir, "ComicInfo.xml")
             with open(xml_file_path, "w", encoding="utf-8") as f:
                 f.write(xml_content)
-            yield log(f"XML 文件已保存到 {xml_file_path}")
+            yield log(f"[{site_label}] XML 文件已保存到 {xml_file_path}")
 
-        yield log("所有章节的XML文件已生成。")
+        yield log(f"[{site_label}] 所有章节的XML文件已生成。")
 
 
-async def ui_run(manga_input, limit):
+async def ui_run(site, manga_input, limit):
     limit_val = None
     try:
         if limit is not None and str(limit).strip() != "":
@@ -102,20 +111,21 @@ async def ui_run(manga_input, limit):
     except Exception:
         limit_val = None
 
-    async for chunk in run_scrape(manga_input.strip(), limit_val):
+    async for chunk in run_scrape(site, manga_input.strip(), limit_val):
         yield chunk
 
 
-with gr.Blocks(title="MangaTag | Manhuagui") as demo:
+with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
     with gr.Tabs():
         with gr.Tab("抓取与生成XML"):
-            gr.Markdown("**MangaTag - 漫画柜抓取与XML生成**")
+            gr.Markdown("**MangaTag - 抓取与XML生成（支持 漫画柜 / 包子漫画）**")
             with gr.Row():
+                site_dd = gr.Dropdown(label="站点", choices=["Manhuagui", "Baozimh"], value="Manhuagui")
                 manga_input = gr.Textbox(label="漫画URL或编号", placeholder="如 https://tw.manhuagui.com/comic/1055/ 或 1055")
                 limit = gr.Number(label="限制章节数(可选)", precision=0)
             run_btn = gr.Button("开始")
             output = gr.Textbox(label="日志输出", lines=20)
-            run_btn.click(fn=ui_run, inputs=[manga_input, limit], outputs=output)
+            run_btn.click(fn=ui_run, inputs=[site_dd, manga_input, limit], outputs=output)
 
         with gr.Tab("更新XML Number"):
             gr.Markdown("**根据章节文件夹名更新 ComicInfo.xml 的 Number 字段**")

@@ -284,7 +284,6 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
             scan_btn = gr.Button("扫描目录并读取 ComicInfo.xml")
             include_header_cb = gr.Checkbox(label="包含表头", value=True)
             sort_dd = gr.Dropdown(label="排序方式", choices=["按字母顺序", "按数字大小顺序"], value="按字母顺序")
-            strict_order_cb = gr.Checkbox(label="严格顺序校验（按扫描顺序保存）", value=True)
             csv_tb = gr.Textbox(label="CSV 编辑区", lines=18)
             with gr.Row():
                 export_btn = gr.DownloadButton("导出CSV")
@@ -408,8 +407,18 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                 # sort_mode: "按字母顺序" | "按数字大小顺序"
                 if sort_mode == "按数字大小顺序":
                     def key_func(path: str):
+                        # 允许名称前有非数字（如"第"），取文件名中的第一个数字作为排序键
+                        import re
                         name = os.path.basename(path)
-                        num = parse_prefix_number(os.path.splitext(name)[0])
+                        base = os.path.splitext(name)[0]
+                        num = parse_prefix_number(base)
+                        if num is None:
+                            m = re.search(r"\d+", base)
+                            if m:
+                                try:
+                                    num = int(m.group(0))
+                                except Exception:
+                                    num = None
                         return (0, int(num)) if num is not None else (1, name.lower())
                     return sorted(archives, key=key_func)
                 else:
@@ -487,7 +496,7 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                     pruned.pop()
                 return pruned
 
-            def save_archives(csv_text: str, include_header: bool, strict_order: bool):
+            def save_archives(csv_text: str, include_header: bool):
                 # 流式输出日志：逐个压缩包写入并产生日志
                 import io, csv
                 logs: list[str] = []
@@ -507,23 +516,44 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                 rows = list(reader)
                 rows = _strip_optional_header(rows, include_header)
                 rows = _prune_trailing_empty_rows(rows)
-                if len(rows) != len(_edit_state["archives"]):
-                    yield log(f"行数不匹配：CSV {len(rows)} 行，压缩包 {len(_edit_state['archives'])} 个。已取消保存。")
+
+                # 基于 FileName 建立映射，允许行顺序不同
+                row_map: dict[str, list[str]] = {}
+                duplicates: set[str] = set()
+                for r in rows:
+                    if not r:
+                        continue
+                    fn = (r[0] if len(r) > 0 else "").strip()
+                    if not fn:
+                        continue
+                    if fn in row_map:
+                        duplicates.add(fn)
+                    else:
+                        row_map[fn] = r
+
+                if duplicates:
+                    yield log(f"CSV 文件名重复：{len(duplicates)} 个，例如 {sorted(list(duplicates))[:3]} ...。已取消保存。")
+                    return
+
+                archive_names = [os.path.basename(a) for a in _edit_state["archives"]]
+                set_archives = set(archive_names)
+                set_csv = set(row_map.keys())
+                missing = sorted(list(set_archives - set_csv))
+                extra = sorted(list(set_csv - set_archives))
+                if missing:
+                    sample = ", ".join(missing[:3])
+                    yield log(f"CSV 缺少以下文件名（共 {len(missing)}）：{sample} ...。已取消保存。")
+                    return
+                if extra:
+                    sample = ", ".join(extra[:3])
+                    yield log(f"CSV 包含未在扫描列表中的文件名（共 {len(extra)}）：{sample} ...。已取消保存。")
                     return
 
                 total = len(_edit_state["archives"])
-                if strict_order:
-                    # 用 FileName 列严格校验顺序与对应关系
-                    for idx, ap in enumerate(_edit_state["archives"]):
-                        row = rows[idx] if idx < len(rows) else []
-                        filename_csv = (row[0] if len(row) > 0 else "").strip()
-                        if filename_csv != os.path.basename(ap):
-                            yield log(f"顺序校验失败于第 {idx+1} 行：期望 FileName='{os.path.basename(ap)}'，CSV='{filename_csv}'。已取消保存。")
-                            return
                 for idx, ap in enumerate(_edit_state["archives"]):
                     name = os.path.basename(ap)
                     try:
-                        row = rows[idx]
+                        row = row_map[name]
                         if len(row) < 10:
                             row = row + [""] * (10 - len(row))
                         fields = {
@@ -602,7 +632,7 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                     return ""
 
             scan_btn.click(fn=scan_archives, inputs=[edit_dir_tb, include_header_cb, sort_dd], outputs=[csv_tb, scan_logs])
-            save_btn.click(fn=save_archives, inputs=[csv_tb, include_header_cb, strict_order_cb], outputs=save_logs)
+            save_btn.click(fn=save_archives, inputs=[csv_tb, include_header_cb], outputs=save_logs)
             export_btn.click(fn=export_csv, inputs=[csv_tb, include_header_cb], outputs=export_btn)
             import_file.upload(fn=import_csv, inputs=[import_file, include_header_cb], outputs=csv_tb)
 

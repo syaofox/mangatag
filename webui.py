@@ -283,6 +283,8 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
             edit_dir_tb = gr.Textbox(label="章节压缩包目录", placeholder="如 /path/to/comic/dir")
             scan_btn = gr.Button("扫描目录并读取 ComicInfo.xml")
             include_header_cb = gr.Checkbox(label="包含表头", value=True)
+            sort_dd = gr.Dropdown(label="排序方式", choices=["按字母顺序", "按数字大小顺序"], value="按字母顺序")
+            strict_order_cb = gr.Checkbox(label="严格顺序校验（按扫描顺序保存）", value=True)
             csv_tb = gr.Textbox(label="CSV 编辑区", lines=18)
             with gr.Row():
                 export_btn = gr.DownloadButton("导出CSV")
@@ -401,7 +403,18 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                 "SourceMihon",
             ]
 
-            def scan_archives(comic_dir: str, include_header: bool):
+            def _sort_archives(archives: list[str], sort_mode: str) -> list[str]:
+                # sort_mode: "按字母顺序" | "按数字大小顺序"
+                if sort_mode == "按数字大小顺序":
+                    def key_func(path: str):
+                        name = os.path.basename(path)
+                        num = parse_prefix_number(os.path.splitext(name)[0])
+                        return (0, int(num)) if num is not None else (1, name.lower())
+                    return sorted(archives, key=key_func)
+                else:
+                    return sorted(archives, key=lambda p: os.path.basename(p).lower())
+
+            def scan_archives(comic_dir: str, include_header: bool, sort_mode: str):
                 # 流式输出日志：在过程中持续产生日志，最终一次性输出CSV文本
                 import io, csv
                 logs: list[str] = []
@@ -416,8 +429,9 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                     return
 
                 archives = list_archives(comic_dir)
+                archives = _sort_archives(archives, sort_mode)
                 _edit_state["archives"] = archives
-                yield log(f"发现压缩包：{len(archives)} 个")
+                yield log(f"发现压缩包：{len(archives)} 个，排序：{sort_mode}")
 
                 output = io.StringIO()
                 writer = csv.writer(output)
@@ -462,7 +476,14 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                     return rows[1:]
                 return rows
 
-            def save_archives(csv_text: str, include_header: bool):
+            def _prune_trailing_empty_rows(rows: list[list[str]]):
+                # 去掉尾部全空行，避免因多余换行导致行数偏差
+                pruned = list(rows)
+                while pruned and all((c is None or str(c).strip() == "") for c in pruned[-1]):
+                    pruned.pop()
+                return pruned
+
+            def save_archives(csv_text: str, include_header: bool, strict_order: bool):
                 # 流式输出日志：逐个压缩包写入并产生日志
                 import io, csv
                 logs: list[str] = []
@@ -481,11 +502,36 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                 reader = csv.reader(io.StringIO(csv_text))
                 rows = list(reader)
                 rows = _strip_optional_header(rows, include_header)
+                rows = _prune_trailing_empty_rows(rows)
                 if len(rows) != len(_edit_state["archives"]):
                     yield log(f"行数不匹配：CSV {len(rows)} 行，压缩包 {len(_edit_state['archives'])} 个。已取消保存。")
                     return
 
                 total = len(_edit_state["archives"])
+                if strict_order:
+                    # 用 Title/Series 做顺序一致性快速校验（仅在CSV提供任一字段时校验）
+                    for idx, ap in enumerate(_edit_state["archives"]):
+                        row = rows[idx] if idx < len(rows) else []
+                        title_csv = (row[0] if len(row) > 0 else "").strip()
+                        series_csv = (row[1] if len(row) > 1 else "").strip()
+                        if not title_csv and not series_csv:
+                            continue
+                        xml_bytes = _read_xml_from_archive(ap)
+                        if xml_bytes is None:
+                            base = os.path.splitext(os.path.basename(ap))[0]
+                            series = os.path.basename(os.path.dirname(ap)) if os.path.dirname(ap) else ""
+                            title_ref, series_ref = base.strip(), series.strip()
+                        else:
+                            fields_ref = _parse_xml_fields(xml_bytes)
+                            title_ref = (fields_ref.get("Title", "") or "").strip()
+                            series_ref = (fields_ref.get("Series", "") or "").strip()
+                            if not title_ref and not series_ref:
+                                base = os.path.splitext(os.path.basename(ap))[0]
+                                series = os.path.basename(os.path.dirname(ap)) if os.path.dirname(ap) else ""
+                                title_ref, series_ref = base.strip(), series.strip()
+                        if (title_ref and title_csv and title_ref != title_csv) or (series_ref and series_csv and series_ref != series_csv):
+                            yield log(f"顺序校验失败于第 {idx+1} 行：文件={os.path.basename(ap)}, 参考(Title='{title_ref}', Series='{series_ref}'), CSV(Title='{title_csv}', Series='{series_csv}')。已取消保存。")
+                            return
                 for idx, ap in enumerate(_edit_state["archives"]):
                     name = os.path.basename(ap)
                     try:
@@ -567,8 +613,8 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                 except Exception:
                     return ""
 
-            scan_btn.click(fn=scan_archives, inputs=[edit_dir_tb, include_header_cb], outputs=[csv_tb, scan_logs])
-            save_btn.click(fn=save_archives, inputs=[csv_tb, include_header_cb], outputs=save_logs)
+            scan_btn.click(fn=scan_archives, inputs=[edit_dir_tb, include_header_cb, sort_dd], outputs=[csv_tb, scan_logs])
+            save_btn.click(fn=save_archives, inputs=[csv_tb, include_header_cb, strict_order_cb], outputs=save_logs)
             export_btn.click(fn=export_csv, inputs=[csv_tb, include_header_cb], outputs=export_btn)
             import_file.upload(fn=import_csv, inputs=[import_file, include_header_cb], outputs=csv_tb)
 

@@ -288,6 +288,7 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                 export_btn = gr.DownloadButton("导出CSV")
                 import_file = gr.File(label="导入CSV", file_types=[".csv"]) 
             save_btn = gr.Button("保存修改到压缩包")
+            scan_logs = gr.Textbox(label="扫描日志", lines=16)
             save_logs = gr.Textbox(label="保存日志", lines=16)
 
             def _read_xml_from_archive(archive_path: str):
@@ -401,35 +402,58 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
             ]
 
             def scan_archives(comic_dir: str, include_header: bool):
+                # 流式输出日志：在过程中持续产生日志，最终一次性输出CSV文本
                 import io, csv
+                logs: list[str] = []
+
+                def log(msg: str):
+                    logs.append(msg)
+                    # 中间过程：仅更新日志，不更新CSV
+                    return (None, "\n".join(logs))
+
                 if not comic_dir or not os.path.isdir(comic_dir):
-                    return ""
+                    yield ("", "错误：目录不存在或为空")
+                    return
+
                 archives = list_archives(comic_dir)
-                # 保存档案顺序到闭包状态
                 _edit_state["archives"] = archives
+                yield log(f"发现压缩包：{len(archives)} 个")
+
                 output = io.StringIO()
                 writer = csv.writer(output)
                 if include_header:
                     writer.writerow(_csv_headers)
-                # 每行：Title,Series,Number,Summary,Writer,Genre,Web,PublishingStatusTachiyomi,SourceMihon
-                for ap in archives:
-                    xml_bytes = _read_xml_from_archive(ap)
-                    if xml_bytes is None:
+
+                for i, ap in enumerate(archives, start=1):
+                    base_name = os.path.basename(ap)
+                    try:
+                        xml_bytes = _read_xml_from_archive(ap)
+                        if xml_bytes is None:
+                            base = os.path.splitext(base_name)[0]
+                            series = os.path.basename(os.path.dirname(ap)) if os.path.dirname(ap) else ""
+                            writer.writerow([base, series, "", "", "", "", "", "", ""]) 
+                            yield log(f"[{i}/{len(archives)}] 无 ComicInfo.xml -> 预填 Title='{base}', Series='{series}'")
+                        else:
+                            fields = _parse_xml_fields(xml_bytes)
+                            writer.writerow([
+                                fields.get("Title", ""),
+                                fields.get("Series", ""),
+                                fields.get("Number", ""),
+                                fields.get("Summary", ""),
+                                fields.get("Writer", ""),
+                                fields.get("Genre", ""),
+                                fields.get("Web", ""),
+                                fields.get("PublishingStatusTachiyomi", ""),
+                                fields.get("SourceMihon", ""),
+                            ])
+                            yield log(f"[{i}/{len(archives)}] 读取 ComicInfo.xml 成功 -> {base_name}")
+                    except Exception as e:
+                        # 出错也写入空行保持行数一致
                         writer.writerow(["" for _ in range(9)])
-                        continue
-                    fields = _parse_xml_fields(xml_bytes)
-                    writer.writerow([
-                        fields.get("Title", ""),
-                        fields.get("Series", ""),
-                        fields.get("Number", ""),
-                        fields.get("Summary", ""),
-                        fields.get("Writer", ""),
-                        fields.get("Genre", ""),
-                        fields.get("Web", ""),
-                        fields.get("PublishingStatusTachiyomi", ""),
-                        fields.get("SourceMihon", ""),
-                    ])
-                return output.getvalue()
+                        yield log(f"[{i}/{len(archives)}] 读取失败 -> {base_name}: {e}")
+
+                # 最终产出CSV文本与最终日志
+                yield (output.getvalue(), "\n".join(logs))
 
             def _strip_optional_header(rows: list[list[str]], include_header: bool):
                 if not rows:
@@ -439,23 +463,33 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                 return rows
 
             def save_archives(csv_text: str, include_header: bool):
+                # 流式输出日志：逐个压缩包写入并产生日志
                 import io, csv
-                logs = []
+                logs: list[str] = []
+
+                def log(msg: str):
+                    logs.append(msg)
+                    return "\n".join(logs)
+
                 if not csv_text:
-                    return "无可保存的内容"
+                    yield log("无可保存的内容")
+                    return
                 if not _edit_state["archives"]:
-                    return "请先扫描目录以建立压缩包顺序"
+                    yield log("请先扫描目录以建立压缩包顺序")
+                    return
 
                 reader = csv.reader(io.StringIO(csv_text))
                 rows = list(reader)
                 rows = _strip_optional_header(rows, include_header)
                 if len(rows) != len(_edit_state["archives"]):
-                    return f"行数不匹配：CSV {len(rows)} 行，压缩包 {len(_edit_state['archives'])} 个。已取消保存。"
+                    yield log(f"行数不匹配：CSV {len(rows)} 行，压缩包 {len(_edit_state['archives'])} 个。已取消保存。")
+                    return
 
+                total = len(_edit_state["archives"])
                 for idx, ap in enumerate(_edit_state["archives"]):
+                    name = os.path.basename(ap)
                     try:
                         row = rows[idx]
-                        # 若某行列不足，补齐到9列
                         if len(row) < 9:
                             row = row + [""] * (9 - len(row))
                         fields = {
@@ -472,12 +506,13 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                         xml_bytes = _build_xml_from_fields(fields)
                         ok = _write_xml_to_archive(ap, xml_bytes)
                         if ok:
-                            logs.append(f"已保存: {os.path.basename(ap)}")
+                            yield log(f"[{idx+1}/{total}] 已保存: {name}")
                         else:
-                            logs.append(f"失败: {os.path.basename(ap)}")
+                            yield log(f"[{idx+1}/{total}] 失败: {name}")
                     except Exception as e:
-                        logs.append(f"异常: {os.path.basename(ap)} -> {e}")
-                return "\n".join(logs)
+                        yield log(f"[{idx+1}/{total}] 异常: {name} -> {e}")
+                # 结束
+                yield log("保存完成")
 
             def export_csv(csv_text: str, include_header: bool):
                 # 若需要表头且未包含，则自动添加表头；导出返回临时文件路径
@@ -532,7 +567,7 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                 except Exception:
                     return ""
 
-            scan_btn.click(fn=scan_archives, inputs=[edit_dir_tb, include_header_cb], outputs=csv_tb)
+            scan_btn.click(fn=scan_archives, inputs=[edit_dir_tb, include_header_cb], outputs=[csv_tb, scan_logs])
             save_btn.click(fn=save_archives, inputs=[csv_tb, include_header_cb], outputs=save_logs)
             export_btn.click(fn=export_csv, inputs=[csv_tb, include_header_cb], outputs=export_btn)
             import_file.upload(fn=import_csv, inputs=[import_file, include_header_cb], outputs=csv_tb)

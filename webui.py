@@ -279,7 +279,7 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
             )
 
         with gr.Tab("编辑压缩包内XML"):
-            gr.Markdown("**扫描目录中的 .cbz/.zip，读取 ComicInfo.xml 后在下方 CSV 文本中编辑并保存回压缩包**\n\n- 每行对应一个压缩包；若无 ComicInfo.xml 则输出空行。\n- 字段以逗号分隔，符合CSV标准（引号转义）。\n- 保存时将按扫描顺序逐行写入，并校验行数是否一致。")
+            gr.Markdown("**扫描目录中的 .cbz/.zip，读取 ComicInfo.xml 后在下方 CSV 文本中编辑并保存回压缩包**\n\n- 每行对应一个压缩包；若无 ComicInfo.xml 则输出预填信息。\n- 第一列为 FileName（固定，用于校验），其余列为元数据（Title 列名可自由修改，不影响解析）。\n- 字段以逗号分隔，符合CSV标准（引号转义）。\n- 保存时将按扫描顺序逐行写入，并严格校验 FileName 与顺序是否一致。")
             edit_dir_tb = gr.Textbox(label="章节压缩包目录", placeholder="如 /path/to/comic/dir")
             scan_btn = gr.Button("扫描目录并读取 ComicInfo.xml")
             include_header_cb = gr.Checkbox(label="包含表头", value=True)
@@ -392,6 +392,7 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
             # 用闭包中的可变字典保存最近一次扫描顺序
             _edit_state = {"archives": []}
             _csv_headers = [
+                "FileName",
                 "Title",
                 "Series",
                 "Number",
@@ -445,11 +446,12 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                         if xml_bytes is None:
                             base = os.path.splitext(base_name)[0]
                             series = os.path.basename(os.path.dirname(ap)) if os.path.dirname(ap) else ""
-                            writer.writerow([base, series, "", "", "", "", "", "", ""]) 
+                            writer.writerow([base_name, base, series, "", "", "", "", "", "", ""]) 
                             yield log(f"[{i}/{len(archives)}] 无 ComicInfo.xml -> 预填 Title='{base}', Series='{series}'")
                         else:
                             fields = _parse_xml_fields(xml_bytes)
                             writer.writerow([
+                                base_name,
                                 fields.get("Title", ""),
                                 fields.get("Series", ""),
                                 fields.get("Number", ""),
@@ -463,7 +465,7 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                             yield log(f"[{i}/{len(archives)}] 读取 ComicInfo.xml 成功 -> {base_name}")
                     except Exception as e:
                         # 出错也写入空行保持行数一致
-                        writer.writerow(["" for _ in range(9)])
+                        writer.writerow([os.path.basename(ap)] + ["" for _ in range(9)])
                         yield log(f"[{i}/{len(archives)}] 读取失败 -> {base_name}: {e}")
 
                 # 最终产出CSV文本与最终日志
@@ -472,7 +474,9 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
             def _strip_optional_header(rows: list[list[str]], include_header: bool):
                 if not rows:
                     return rows
-                if include_header and rows and [c.strip() for c in rows[0]] == _csv_headers:
+                # 启用包含表头或首列显式为 FileName 时，去除首行
+                first_row = [c.strip() for c in rows[0]] if rows else []
+                if (include_header and rows and first_row[:1] == ["FileName"]) or (rows and first_row[:1] == ["FileName"]):
                     return rows[1:]
                 return rows
 
@@ -509,45 +513,29 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
 
                 total = len(_edit_state["archives"])
                 if strict_order:
-                    # 用 Title/Series 做顺序一致性快速校验（仅在CSV提供任一字段时校验）
+                    # 用 FileName 列严格校验顺序与对应关系
                     for idx, ap in enumerate(_edit_state["archives"]):
                         row = rows[idx] if idx < len(rows) else []
-                        title_csv = (row[0] if len(row) > 0 else "").strip()
-                        series_csv = (row[1] if len(row) > 1 else "").strip()
-                        if not title_csv and not series_csv:
-                            continue
-                        xml_bytes = _read_xml_from_archive(ap)
-                        if xml_bytes is None:
-                            base = os.path.splitext(os.path.basename(ap))[0]
-                            series = os.path.basename(os.path.dirname(ap)) if os.path.dirname(ap) else ""
-                            title_ref, series_ref = base.strip(), series.strip()
-                        else:
-                            fields_ref = _parse_xml_fields(xml_bytes)
-                            title_ref = (fields_ref.get("Title", "") or "").strip()
-                            series_ref = (fields_ref.get("Series", "") or "").strip()
-                            if not title_ref and not series_ref:
-                                base = os.path.splitext(os.path.basename(ap))[0]
-                                series = os.path.basename(os.path.dirname(ap)) if os.path.dirname(ap) else ""
-                                title_ref, series_ref = base.strip(), series.strip()
-                        if (title_ref and title_csv and title_ref != title_csv) or (series_ref and series_csv and series_ref != series_csv):
-                            yield log(f"顺序校验失败于第 {idx+1} 行：文件={os.path.basename(ap)}, 参考(Title='{title_ref}', Series='{series_ref}'), CSV(Title='{title_csv}', Series='{series_csv}')。已取消保存。")
+                        filename_csv = (row[0] if len(row) > 0 else "").strip()
+                        if filename_csv != os.path.basename(ap):
+                            yield log(f"顺序校验失败于第 {idx+1} 行：期望 FileName='{os.path.basename(ap)}'，CSV='{filename_csv}'。已取消保存。")
                             return
                 for idx, ap in enumerate(_edit_state["archives"]):
                     name = os.path.basename(ap)
                     try:
                         row = rows[idx]
-                        if len(row) < 9:
-                            row = row + [""] * (9 - len(row))
+                        if len(row) < 10:
+                            row = row + [""] * (10 - len(row))
                         fields = {
-                            "Title": row[0],
-                            "Series": row[1],
-                            "Number": row[2],
-                            "Summary": row[3],
-                            "Writer": row[4],
-                            "Genre": row[5],
-                            "Web": row[6],
-                            "PublishingStatusTachiyomi": row[7],
-                            "SourceMihon": row[8],
+                            "Title": row[1],
+                            "Series": row[2],
+                            "Number": row[3],
+                            "Summary": row[4],
+                            "Writer": row[5],
+                            "Genre": row[6],
+                            "Web": row[7],
+                            "PublishingStatusTachiyomi": row[8],
+                            "SourceMihon": row[9],
                         }
                         xml_bytes = _build_xml_from_fields(fields)
                         ok = _write_xml_to_archive(ap, xml_bytes)

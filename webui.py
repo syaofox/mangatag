@@ -279,27 +279,14 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
             )
 
         with gr.Tab("编辑压缩包内XML"):
-            gr.Markdown("**扫描目录中的 .cbz/.zip，读取 ComicInfo.xml 后在下方表格中自由修改并保存回压缩包**")
+            gr.Markdown("**扫描目录中的 .cbz/.zip，读取 ComicInfo.xml 后在下方 CSV 文本中编辑并保存回压缩包**\n\n- 每行对应一个压缩包；若无 ComicInfo.xml 则输出空行。\n- 字段以逗号分隔，符合CSV标准（引号转义）。\n- 保存时将按扫描顺序逐行写入，并校验行数是否一致。")
             edit_dir_tb = gr.Textbox(label="章节压缩包目录", placeholder="如 /path/to/comic/dir")
             scan_btn = gr.Button("扫描目录并读取 ComicInfo.xml")
-            data_df = gr.Dataframe(
-                headers=[
-                    "archive_path",
-                    "file_name",
-                    "Title",
-                    "Series",
-                    "Number",
-                    "Summary",
-                    "Writer",
-                    "Genre",
-                    "Web",
-                    "PublishingStatusTachiyomi",
-                    "SourceMihon",
-                ],
-                interactive=True,
-                wrap=True,
-                row_count=(0, "dynamic"),
-            )
+            include_header_cb = gr.Checkbox(label="包含表头", value=True)
+            csv_tb = gr.Textbox(label="CSV 编辑区", lines=18)
+            with gr.Row():
+                export_btn = gr.DownloadButton("导出CSV")
+                import_file = gr.File(label="导入CSV", file_types=[".csv"]) 
             save_btn = gr.Button("保存修改到压缩包")
             save_logs = gr.Textbox(label="保存日志", lines=16)
 
@@ -399,61 +386,156 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
 
             import tempfile
 
-            def scan_archives(comic_dir: str):
-                rows = []
+            # 用闭包中的可变字典保存最近一次扫描顺序
+            _edit_state = {"archives": []}
+            _csv_headers = [
+                "Title",
+                "Series",
+                "Number",
+                "Summary",
+                "Writer",
+                "Genre",
+                "Web",
+                "PublishingStatusTachiyomi",
+                "SourceMihon",
+            ]
+
+            def scan_archives(comic_dir: str, include_header: bool):
+                import io, csv
                 if not comic_dir or not os.path.isdir(comic_dir):
-                    return rows
+                    return ""
                 archives = list_archives(comic_dir)
+                # 保存档案顺序到闭包状态
+                _edit_state["archives"] = archives
+                output = io.StringIO()
+                writer = csv.writer(output)
+                if include_header:
+                    writer.writerow(_csv_headers)
+                # 每行：Title,Series,Number,Summary,Writer,Genre,Web,PublishingStatusTachiyomi,SourceMihon
                 for ap in archives:
                     xml_bytes = _read_xml_from_archive(ap)
                     if xml_bytes is None:
+                        writer.writerow(["" for _ in range(9)])
                         continue
                     fields = _parse_xml_fields(xml_bytes)
-                    rows.append([
-                        ap,
-                        os.path.basename(ap),
-                        fields["Title"],
-                        fields["Series"],
-                        fields["Number"],
-                        fields["Summary"],
-                        fields["Writer"],
-                        fields["Genre"],
-                        fields["Web"],
-                        fields["PublishingStatusTachiyomi"],
-                        fields["SourceMihon"],
+                    writer.writerow([
+                        fields.get("Title", ""),
+                        fields.get("Series", ""),
+                        fields.get("Number", ""),
+                        fields.get("Summary", ""),
+                        fields.get("Writer", ""),
+                        fields.get("Genre", ""),
+                        fields.get("Web", ""),
+                        fields.get("PublishingStatusTachiyomi", ""),
+                        fields.get("SourceMihon", ""),
                     ])
+                return output.getvalue()
+
+            def _strip_optional_header(rows: list[list[str]], include_header: bool):
+                if not rows:
+                    return rows
+                if include_header and rows and [c.strip() for c in rows[0]] == _csv_headers:
+                    return rows[1:]
                 return rows
 
-            def save_archives(edited_table):
+            def save_archives(csv_text: str, include_header: bool):
+                import io, csv
                 logs = []
-                if not edited_table:
+                if not csv_text:
                     return "无可保存的内容"
-                for row in edited_table:
+                if not _edit_state["archives"]:
+                    return "请先扫描目录以建立压缩包顺序"
+
+                reader = csv.reader(io.StringIO(csv_text))
+                rows = list(reader)
+                rows = _strip_optional_header(rows, include_header)
+                if len(rows) != len(_edit_state["archives"]):
+                    return f"行数不匹配：CSV {len(rows)} 行，压缩包 {len(_edit_state['archives'])} 个。已取消保存。"
+
+                for idx, ap in enumerate(_edit_state["archives"]):
                     try:
-                        archive_path = row[0]
+                        row = rows[idx]
+                        # 若某行列不足，补齐到9列
+                        if len(row) < 9:
+                            row = row + [""] * (9 - len(row))
                         fields = {
-                            "Title": row[2],
-                            "Series": row[3],
-                            "Number": row[4],
-                            "Summary": row[5],
-                            "Writer": row[6],
-                            "Genre": row[7],
-                            "Web": row[8],
-                            "PublishingStatusTachiyomi": row[9],
-                            "SourceMihon": row[10],
+                            "Title": row[0],
+                            "Series": row[1],
+                            "Number": row[2],
+                            "Summary": row[3],
+                            "Writer": row[4],
+                            "Genre": row[5],
+                            "Web": row[6],
+                            "PublishingStatusTachiyomi": row[7],
+                            "SourceMihon": row[8],
                         }
                         xml_bytes = _build_xml_from_fields(fields)
-                        ok = _write_xml_to_archive(archive_path, xml_bytes)
+                        ok = _write_xml_to_archive(ap, xml_bytes)
                         if ok:
-                            logs.append(f"已保存: {os.path.basename(archive_path)}")
+                            logs.append(f"已保存: {os.path.basename(ap)}")
                         else:
-                            logs.append(f"失败: {os.path.basename(archive_path)}")
+                            logs.append(f"失败: {os.path.basename(ap)}")
                     except Exception as e:
-                        logs.append(f"异常: {e}")
+                        logs.append(f"异常: {os.path.basename(ap)} -> {e}")
                 return "\n".join(logs)
 
-            scan_btn.click(fn=scan_archives, inputs=edit_dir_tb, outputs=data_df)
-            save_btn.click(fn=save_archives, inputs=data_df, outputs=save_logs)
+            def export_csv(csv_text: str, include_header: bool):
+                # 若需要表头且未包含，则自动添加表头；导出返回临时文件路径
+                import io, csv, tempfile
+                rows = list(csv.reader(io.StringIO(csv_text or "")))
+                if include_header:
+                    if not rows or [c.strip() for c in rows[0]] != _csv_headers:
+                        output = io.StringIO()
+                        writer = csv.writer(output)
+                        writer.writerow(_csv_headers)
+                        for r in rows:
+                            writer.writerow(r)
+                        data = output.getvalue().encode("utf-8")
+                    else:
+                        data = (csv_text or "").encode("utf-8")
+                else:
+                    data = (csv_text or "").encode("utf-8")
+                fd, tmp_path = tempfile.mkstemp(suffix=".csv", prefix="export_comicinfo_")
+                with os.fdopen(fd, "wb") as f:
+                    f.write(data)
+                return tmp_path
+
+            def import_csv(file_obj, include_header: bool):
+                try:
+                    if file_obj is None:
+                        return ""
+                    # gr.File 传入的是一个类似 {name, size, data, ...} 的对象，需读取其临时路径或数据
+                    # gradio 通常提供 .name 或 .orig_name；这里使用 .name 作为路径
+                    path = getattr(file_obj, "name", None) or getattr(file_obj, "orig_name", None)
+                    if path and os.path.exists(path):
+                        with open(path, "r", encoding="utf-8") as f:
+                            content = f.read()
+                    else:
+                        # 回退：某些版本以字节形式提供 data
+                        data = getattr(file_obj, "data", None)
+                        if data is None:
+                            return ""
+                        try:
+                            content = data.decode("utf-8")
+                        except Exception:
+                            content = data.decode("utf-8", errors="ignore")
+                    # 如果不包含表头且文件带表头，则去掉首行
+                    import io, csv
+                    rows = list(csv.reader(io.StringIO(content)))
+                    if not include_header and rows and [c.strip() for c in rows[0]] == _csv_headers:
+                        output = io.StringIO()
+                        writer = csv.writer(output)
+                        for r in rows[1:]:
+                            writer.writerow(r)
+                        return output.getvalue()
+                    return content
+                except Exception:
+                    return ""
+
+            scan_btn.click(fn=scan_archives, inputs=[edit_dir_tb, include_header_cb], outputs=csv_tb)
+            save_btn.click(fn=save_archives, inputs=[csv_tb, include_header_cb], outputs=save_logs)
+            export_btn.click(fn=export_csv, inputs=[csv_tb, include_header_cb], outputs=export_btn)
+            import_file.upload(fn=import_csv, inputs=[import_file, include_header_cb], outputs=csv_tb)
 
 
 if __name__ == "__main__":

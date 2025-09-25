@@ -407,19 +407,23 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                 # sort_mode: "按字母顺序" | "按数字大小顺序"
                 if sort_mode == "按数字大小顺序":
                     def key_func(path: str):
-                        # 允许名称前有非数字（如"第"），取文件名中的第一个数字作为排序键
+                        # 规则：先按最开头的非数字前缀(不区分大小写)排序，再按紧随其后的数字大小排序
+                        # 示例："第4回" 与 "第27話" 前缀同为 "第"，则比较 4 与 27
                         import re
                         name = os.path.basename(path)
                         base = os.path.splitext(name)[0]
-                        num = parse_prefix_number(base)
-                        if num is None:
-                            m = re.search(r"\d+", base)
-                            if m:
-                                try:
-                                    num = int(m.group(0))
-                                except Exception:
-                                    num = None
-                        return (0, int(num)) if num is not None else (1, name.lower())
+                        m = re.match(r"^(\D*)(\d+)?", base)
+                        prefix = (m.group(1) if m else "").lower()
+                        num = None
+                        if m and m.group(2):
+                            try:
+                                num = int(m.group(2))
+                            except Exception:
+                                num = None
+                        # 没有数字的排在有数字的之后；再以完整名作最后兜底
+                        has_num_flag = 0 if num is not None else 1
+                        num_val = num if num is not None else 0
+                        return (prefix, has_num_flag, num_val, name.lower())
                     return sorted(archives, key=key_func)
                 else:
                     return sorted(archives, key=lambda p: os.path.basename(p).lower())

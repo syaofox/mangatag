@@ -289,6 +289,7 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                 export_btn = gr.DownloadButton("导出CSV")
                 import_file = gr.File(label="导入CSV", file_types=[".csv"]) 
             save_btn = gr.Button("保存修改到压缩包")
+            check_count_cb = gr.Checkbox(label="检测文档数量一致（CSV 与扫描数量需一致）", value=True)
             scan_logs = gr.Textbox(label="扫描日志", lines=16)
             save_logs = gr.Textbox(label="保存日志", lines=16)
 
@@ -500,7 +501,7 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                     pruned.pop()
                 return pruned
 
-            def save_archives(csv_text: str, include_header: bool):
+            def save_archives(csv_text: str, include_header: bool, check_count: bool):
                 # 流式输出日志：逐个压缩包写入并产生日志
                 import io, csv
                 logs: list[str] = []
@@ -520,7 +521,7 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                 rows = list(reader)
                 rows = _strip_optional_header(rows, include_header)
                 rows = _prune_trailing_empty_rows(rows)
-
+                
                 # 基于 FileName 建立映射，允许行顺序不同
                 row_map: dict[str, list[str]] = {}
                 duplicates: set[str] = set()
@@ -544,20 +545,31 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                 set_csv = set(row_map.keys())
                 missing = sorted(list(set_archives - set_csv))
                 extra = sorted(list(set_csv - set_archives))
-                if missing:
-                    sample = ", ".join(missing[:3])
-                    yield log(f"CSV 缺少以下文件名（共 {len(missing)}）：{sample} ...。已取消保存。")
-                    return
-                if extra:
-                    sample = ", ".join(extra[:3])
-                    yield log(f"CSV 包含未在扫描列表中的文件名（共 {len(extra)}）：{sample} ...。已取消保存。")
-                    return
+                if check_count:
+                    if missing:
+                        sample = ", ".join(missing[:3])
+                        yield log(f"CSV 缺少以下文件名（共 {len(missing)}）：{sample} ...。已取消保存。")
+                        return
+                    if extra:
+                        sample = ", ".join(extra[:3])
+                        yield log(f"CSV 包含未在扫描列表中的文件名（共 {len(extra)}）：{sample} ...。已取消保存。")
+                        return
+                else:
+                    if missing:
+                        sample = ", ".join(missing[:3])
+                        yield log(f"提示：CSV 缺少 {len(missing)} 个文件，将跳过未提供行的文件。如：{sample} ...")
+                    if extra:
+                        sample = ", ".join(extra[:3])
+                        yield log(f"提示：CSV 包含 {len(extra)} 个额外行（非扫描文件），将忽略。如：{sample} ...")
 
                 total = len(_edit_state["archives"])
                 for idx, ap in enumerate(_edit_state["archives"]):
                     name = os.path.basename(ap)
                     try:
-                        row = row_map[name]
+                        row = row_map.get(name)
+                        if row is None:
+                            yield log(f"[{idx+1}/{total}] 跳过：CSV 未提供对应行 -> {name}")
+                            continue
                         if len(row) < 10:
                             row = row + [""] * (10 - len(row))
                         fields = {
@@ -582,7 +594,7 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                 # 结束
                 yield log("保存完成")
 
-            def export_csv(csv_text: str, include_header: bool):
+            def export_csv(csv_text: str, include_header: bool, comic_dir: str):
                 # 若需要表头且未包含，则自动添加表头；导出返回临时文件路径
                 import io, csv, tempfile
                 rows = list(csv.reader(io.StringIO(csv_text or "")))
@@ -598,7 +610,13 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                         data = (csv_text or "").encode("utf-8")
                 else:
                     data = (csv_text or "").encode("utf-8")
-                fd, tmp_path = tempfile.mkstemp(suffix=".csv", prefix="export_comicinfo_")
+                
+                # 使用章节压缩包目录名作为文件名，避免缓存问题
+                dir_name = os.path.basename(comic_dir) if comic_dir else "comicinfo"
+                safe_name = "".join(c for c in dir_name if c.isalnum() or c in "._- ").strip()
+                if not safe_name:
+                    safe_name = "comicinfo"
+                fd, tmp_path = tempfile.mkstemp(suffix=".csv", prefix=f"{safe_name}_")
                 with os.fdopen(fd, "wb") as f:
                     f.write(data)
                 return tmp_path
@@ -636,8 +654,8 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                     return ""
 
             scan_btn.click(fn=scan_archives, inputs=[edit_dir_tb, include_header_cb, sort_dd], outputs=[csv_tb, scan_logs])
-            save_btn.click(fn=save_archives, inputs=[csv_tb, include_header_cb], outputs=save_logs)
-            export_btn.click(fn=export_csv, inputs=[csv_tb, include_header_cb], outputs=export_btn)
+            save_btn.click(fn=save_archives, inputs=[csv_tb, include_header_cb, check_count_cb], outputs=save_logs)
+            export_btn.click(fn=export_csv, inputs=[csv_tb, include_header_cb, edit_dir_tb], outputs=export_btn)
             import_file.upload(fn=import_csv, inputs=[import_file, include_header_cb], outputs=csv_tb)
 
 

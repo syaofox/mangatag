@@ -279,7 +279,7 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
             )
 
         with gr.Tab("编辑压缩包内XML"):
-            gr.Markdown("**扫描目录中的 .cbz/.zip，读取 ComicInfo.xml 后在下方 CSV 文本中编辑并保存回压缩包**\n\n- 每行对应一个压缩包；若无 ComicInfo.xml 则输出预填信息。\n- 第一列为 FileName（固定，用于校验），其余列为元数据（Title 列名可自由修改，不影响解析）。\n- 字段以逗号分隔，符合CSV标准（引号转义）。\n- 保存时将按扫描顺序逐行写入，并严格校验 FileName 与顺序是否一致。")
+            gr.Markdown("**扫描目录中的 .cbz/.zip，读取 ComicInfo.xml 后在下方 CSV 文本中编辑并保存回压缩包**\n\n- 每行对应一个压缩包；若无 ComicInfo.xml 则输出预填信息。\n- 第一列为 FileName（固定，用于校验），其余列为元数据（Title 列名可自由修改，不影响解析）。\n- 字段以逗号分隔，符合CSV标准（引号转义）。")
             edit_dir_tb = gr.Textbox(label="章节压缩包目录", placeholder="如 /path/to/comic/dir")
             scan_btn = gr.Button("扫描目录并读取 ComicInfo.xml")
             include_header_cb = gr.Checkbox(label="包含表头", value=True)

@@ -285,13 +285,17 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
             include_header_cb = gr.Checkbox(label="包含表头", value=True)
             sort_dd = gr.Dropdown(label="排序方式", choices=["按字母顺序", "按数字大小顺序"], value="按字母顺序")
             csv_tb = gr.Textbox(label="CSV 编辑区", lines=18)
+            csv_state = gr.State("")
             with gr.Row():
-                export_btn = gr.DownloadButton("导出CSV")
+                copy_btn = gr.Button("复制到剪贴板")
+                gen_link_btn = gr.Button("生成下载链接")
                 import_file = gr.File(label="导入CSV", file_types=[".csv"]) 
+            download_file = gr.File(label="下载文件")
             save_btn = gr.Button("保存修改到压缩包")
             check_count_cb = gr.Checkbox(label="检测文档数量一致（CSV 与扫描数量需一致）", value=True)
             scan_logs = gr.Textbox(label="扫描日志", lines=16)
             save_logs = gr.Textbox(label="保存日志", lines=16)
+            copy_status = gr.Textbox(label="复制状态", lines=1)
 
             def _read_xml_from_archive(archive_path: str):
                 try:
@@ -594,9 +598,43 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                 # 结束
                 yield log("保存完成")
 
-            def export_csv(csv_text: str, include_header: bool, comic_dir: str):
+            def export_csv(csv_text_state: str, include_header: bool, comic_dir: str):
                 # 若需要表头且未包含，则自动添加表头；导出返回临时文件路径
-                import io, csv, tempfile
+                import io, csv, tempfile, datetime, uuid
+                # 使用稳定的状态字符串，避免首次点击传入None
+                csv_text = csv_text_state or ""
+                # 若编辑区为空，基于当前扫描状态重建CSV
+                if not csv_text.strip():
+                    output = io.StringIO()
+                    writer = csv.writer(output)
+                    if include_header:
+                        writer.writerow(_csv_headers)
+                    for ap in _edit_state.get("archives", []) or []:
+                        base_name = os.path.basename(ap)
+                        try:
+                            xml_bytes = _read_xml_from_archive(ap)
+                            if xml_bytes is None:
+                                base = os.path.splitext(base_name)[0]
+                                series = os.path.basename(os.path.dirname(ap)) if os.path.dirname(ap) else ""
+                                writer.writerow([base_name, base, series, "", "", "", "", "", "", ""]) 
+                            else:
+                                fields = _parse_xml_fields(xml_bytes)
+                                writer.writerow([
+                                    base_name,
+                                    fields.get("Title", ""),
+                                    fields.get("Series", ""),
+                                    fields.get("Number", ""),
+                                    fields.get("Summary", ""),
+                                    fields.get("Writer", ""),
+                                    fields.get("Genre", ""),
+                                    fields.get("Web", ""),
+                                    fields.get("PublishingStatusTachiyomi", ""),
+                                    fields.get("SourceMihon", ""),
+                                ])
+                        except Exception:
+                            writer.writerow([base_name] + [""] * 9)
+                    csv_text = output.getvalue()
+                
                 rows = list(csv.reader(io.StringIO(csv_text or "")))
                 if include_header:
                     if not rows or [c.strip() for c in rows[0]] != _csv_headers:
@@ -611,14 +649,20 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                 else:
                     data = (csv_text or "").encode("utf-8")
                 
-                # 使用章节压缩包目录名作为文件名，避免缓存问题
+                # 使用章节压缩包目录名 + 时间戳 + UUID 作为文件名前缀，避免缓存
                 dir_name = os.path.basename(comic_dir) if comic_dir else "comicinfo"
-                safe_name = "".join(c for c in dir_name if c.isalnum() or c in "._- ").strip()
-                if not safe_name:
-                    safe_name = "comicinfo"
-                fd, tmp_path = tempfile.mkstemp(suffix=".csv", prefix=f"{safe_name}_")
-                with os.fdopen(fd, "wb") as f:
+                safe_name = "".join(c for c in dir_name if c.isalnum() or c in "._- ").strip() or "comicinfo"
+                ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                uid = uuid.uuid4().hex[:8]
+                import os as _os
+                fd, tmp_path = tempfile.mkstemp(suffix=".csv", prefix=f"{safe_name}_{ts}_{uid}_")
+                with _os.fdopen(fd, "wb") as f:
                     f.write(data)
+                    try:
+                        f.flush()
+                        _os.fsync(f.fileno())
+                    except Exception:
+                        pass
                 return tmp_path
 
             def import_csv(file_obj, include_header: bool):
@@ -653,10 +697,19 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                 except Exception:
                     return ""
 
-            scan_btn.click(fn=scan_archives, inputs=[edit_dir_tb, include_header_cb, sort_dd], outputs=[csv_tb, scan_logs])
+            # 文本变化时更新state
+            def _set_csv_state(text: str):
+                return text or ""
+            csv_tb.change(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
+            # 扫描后将CSV内容写入state
+            scan_btn.click(fn=scan_archives, inputs=[edit_dir_tb, include_header_cb, sort_dd], outputs=[csv_tb, scan_logs]).then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
+            # 导入后将CSV内容写入state
+            import_file.upload(fn=import_csv, inputs=[import_file, include_header_cb], outputs=csv_tb).then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
+            # 复制到剪贴板（前端JS），并显示状态
+            copy_btn.click(fn=None, inputs=csv_state, outputs=copy_status, js="(t)=>{try{navigator.clipboard.writeText(t||'');return '已复制到剪贴板';}catch(e){return '复制失败: '+e}}")
+            # 生成下载链接：将文件路径赋值到 gr.File
+            gen_link_btn.click(fn=export_csv, inputs=[csv_state, include_header_cb, edit_dir_tb], outputs=download_file)
             save_btn.click(fn=save_archives, inputs=[csv_tb, include_header_cb, check_count_cb], outputs=save_logs)
-            export_btn.click(fn=export_csv, inputs=[csv_tb, include_header_cb, edit_dir_tb], outputs=export_btn)
-            import_file.upload(fn=import_csv, inputs=[import_file, include_header_cb], outputs=csv_tb)
 
 
 if __name__ == "__main__":

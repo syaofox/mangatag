@@ -281,22 +281,28 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
         with gr.Tab("编辑压缩包内XML"):
             gr.Markdown("**扫描目录中的 .cbz/.zip，读取 ComicInfo.xml 后在下方 CSV 文本中编辑并保存回压缩包**\n\n- 每行对应一个压缩包；若无 ComicInfo.xml 则输出预填信息。\n- 第一列为 FileName（固定，用于校验），其余列为元数据（Title 列名可自由修改，不影响解析）。\n- 字段以逗号分隔，符合CSV标准（引号转义）。")
             edit_dir_tb = gr.Textbox(label="章节压缩包目录", placeholder="如 /path/to/comic/dir")
-            scan_btn = gr.Button("扫描目录并读取 ComicInfo.xml")
+            scan_btn = gr.Button("扫描目录并读取 ComicInfo.xml")                   
             include_header_cb = gr.Checkbox(label="包含表头", value=True)
             sort_dd = gr.Dropdown(label="排序方式", choices=["按字母顺序", "按数字大小顺序"], value="按字母顺序")
+            
+            scan_logs = gr.Textbox(label="扫描日志", lines=6, max_lines=6)
             csv_tb = gr.Textbox(label="CSV 编辑区", lines=18)
             csv_state = gr.State("")
             with gr.Row():
-                copy_btn = gr.Button("复制到剪贴板")
-                gen_link_btn = gr.Button("生成下载链接")
-                import_file = gr.File(label="导入CSV", file_types=[".csv"]) 
-            download_file = gr.File(label="下载文件")
+                with gr.Column():
+                    copy_btn = gr.Button("复制到剪贴板")
+                    copy_status = gr.Textbox(label="复制状态", lines=1)
+                with gr.Column():
+                    gen_link_btn = gr.Button("生成下载链接")
+                    download_file = gr.File(label="下载文件")
+                
+            
+            import_file = gr.File(label="导入CSV", file_types=[".csv"]) 
+            check_count_cb = gr.Checkbox(label="检测文档数量一致（CSV 与扫描数量需一致）", value=True)     
             save_btn = gr.Button("保存修改到压缩包")
-            check_count_cb = gr.Checkbox(label="检测文档数量一致（CSV 与扫描数量需一致）", value=True)
-            scan_logs = gr.Textbox(label="扫描日志", lines=16)
+            
             save_logs = gr.Textbox(label="保存日志", lines=16)
-            copy_status = gr.Textbox(label="复制状态", lines=1)
-
+            
             def _read_xml_from_archive(archive_path: str):
                 try:
                     with zipfile.ZipFile(archive_path, "r") as zf:

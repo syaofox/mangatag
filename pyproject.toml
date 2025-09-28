@@ -13,4 +13,5 @@ dependencies = [
     "lxml",
     "lzstring",
     "requests",
+    "opencc-python-reimplemented",
 ]

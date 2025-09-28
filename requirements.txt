@@ -6,3 +6,4 @@ jsbeautifier
 aiohttp
 aiolimiter
 gradio
+opencc-python-reimplemented

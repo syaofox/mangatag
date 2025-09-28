@@ -4,6 +4,7 @@ from urllib.parse import urljoin
 import gradio as gr
 from lxml import etree
 import zipfile
+import opencc
 
 from manhuagui import ManhuaguiScraper, parse_manga_url as parse_mh_url
 from baozimanhua import BaoziScraper, parse_manga_url as parse_bz_url
@@ -288,7 +289,10 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
             scan_logs = gr.Textbox(label="扫描日志", lines=6, max_lines=6)
             csv_tb = gr.Textbox(label="CSV 编辑区", lines=18)
             csv_state = gr.State("")
+           
             with gr.Row():
+                simplify_btn = gr.Button("繁体转简体")
+                traditionalize_btn = gr.Button("简体转繁体")
                 with gr.Column():
                     gen_link_btn = gr.Button("生成下载链接")
                     download_file = gr.File(label="下载文件")
@@ -700,6 +704,98 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                 except Exception:
                     return ""
 
+            # 繁体转简体功能
+            def simplify_text(csv_text: str):
+                if not csv_text or not csv_text.strip():
+                    return csv_text
+                try:
+                    import io, csv
+                    # 初始化OpenCC转换器，使用繁体到简体的配置
+                    converter = opencc.OpenCC('t2s')  # Traditional to Simplified
+                    
+                    # 解析CSV内容
+                    reader = csv.reader(io.StringIO(csv_text))
+                    rows = list(reader)
+                    if not rows:
+                        return csv_text
+                    
+                    # 检查是否有表头
+                    has_header = False
+                    if rows and len(rows[0]) >= 10:
+                        first_row = [cell.strip() for cell in rows[0]]
+                        if first_row[:1] == ["FileName"]:
+                            has_header = True
+                    
+                    # 需要转换的列索引（排除FileName列）
+                    convert_columns = [1, 2, 4, 5, 6]  # Title, Series, Summary, Writer, Genre
+                    
+                    # 处理每一行
+                    output = io.StringIO()
+                    writer = csv.writer(output)
+                    
+                    for i, row in enumerate(rows):
+                        if len(row) < 10:
+                            # 补齐到10列
+                            row = row + [""] * (10 - len(row))
+                        
+                        # 转换指定列的内容
+                        for col_idx in convert_columns:
+                            if col_idx < len(row) and row[col_idx]:
+                                row[col_idx] = converter.convert(row[col_idx])
+                        
+                        writer.writerow(row)
+                    
+                    return output.getvalue()
+                except Exception as e:
+                    # 如果转换失败，返回原文本
+                    return csv_text
+
+            # 简体转繁体功能
+            def traditionalize_text(csv_text: str):
+                if not csv_text or not csv_text.strip():
+                    return csv_text
+                try:
+                    import io, csv
+                    # 初始化OpenCC转换器，使用简体到繁体的配置
+                    converter = opencc.OpenCC('s2t')  # Simplified to Traditional
+                    
+                    # 解析CSV内容
+                    reader = csv.reader(io.StringIO(csv_text))
+                    rows = list(reader)
+                    if not rows:
+                        return csv_text
+                    
+                    # 检查是否有表头
+                    has_header = False
+                    if rows and len(rows[0]) >= 10:
+                        first_row = [cell.strip() for cell in rows[0]]
+                        if first_row[:1] == ["FileName"]:
+                            has_header = True
+                    
+                    # 需要转换的列索引（排除FileName列）
+                    convert_columns = [1, 2, 4, 5, 6]  # Title, Series, Summary, Writer, Genre
+                    
+                    # 处理每一行
+                    output = io.StringIO()
+                    writer = csv.writer(output)
+                    
+                    for i, row in enumerate(rows):
+                        if len(row) < 10:
+                            # 补齐到10列
+                            row = row + [""] * (10 - len(row))
+                        
+                        # 转换指定列的内容
+                        for col_idx in convert_columns:
+                            if col_idx < len(row) and row[col_idx]:
+                                row[col_idx] = converter.convert(row[col_idx])
+                        
+                        writer.writerow(row)
+                    
+                    return output.getvalue()
+                except Exception as e:
+                    # 如果转换失败，返回原文本
+                    return csv_text
+
             # 文本变化时更新state
             def _set_csv_state(text: str):
                 return text or ""
@@ -708,6 +804,10 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
             scan_btn.click(fn=scan_archives, inputs=[edit_dir_tb, include_header_cb, sort_dd], outputs=[csv_tb, scan_logs]).then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
             # 导入后将CSV内容写入state
             import_file.upload(fn=import_csv, inputs=[import_file, include_header_cb], outputs=csv_tb).then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
+            # 转换为简体按钮功能
+            simplify_btn.click(fn=simplify_text, inputs=csv_tb, outputs=csv_tb).then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
+            # 转换为繁体按钮功能
+            traditionalize_btn.click(fn=traditionalize_text, inputs=csv_tb, outputs=csv_tb).then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
             # 生成下载链接：将文件路径赋值到 gr.File
             gen_link_btn.click(fn=export_csv, inputs=[csv_state, include_header_cb, edit_dir_tb], outputs=download_file)
             save_btn.click(fn=save_archives, inputs=[csv_tb, include_header_cb, check_count_cb], outputs=save_logs)

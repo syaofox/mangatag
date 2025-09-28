@@ -290,9 +290,6 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
             csv_state = gr.State("")
             with gr.Row():
                 with gr.Column():
-                    copy_btn = gr.Button("复制到剪贴板")
-                    copy_status = gr.Textbox(label="复制状态", lines=1)
-                with gr.Column():
                     gen_link_btn = gr.Button("生成下载链接")
                     download_file = gr.File(label="下载文件")
                 
@@ -711,13 +708,6 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
             scan_btn.click(fn=scan_archives, inputs=[edit_dir_tb, include_header_cb, sort_dd], outputs=[csv_tb, scan_logs]).then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
             # 导入后将CSV内容写入state
             import_file.upload(fn=import_csv, inputs=[import_file, include_header_cb], outputs=csv_tb).then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
-            # 复制到剪贴板（前端JS，带回退方案），并显示状态
-            copy_btn.click(
-                fn=None,
-                inputs=csv_state,
-                outputs=copy_status,
-                js="async (t)=>{try{const text=t||''; if (typeof navigator!=='undefined' && navigator.clipboard && navigator.clipboard.writeText){ await navigator.clipboard.writeText(text); return '已复制到剪贴板'; } const ta=document.createElement('textarea'); ta.value=text; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.focus(); ta.select(); const ok=document.execCommand('copy'); document.body.removeChild(ta); return ok?'已复制到剪贴板':'复制失败: 浏览器不支持'; }catch(e){ return '复制失败: '+e; }}"
-            )
             # 生成下载链接：将文件路径赋值到 gr.File
             gen_link_btn.click(fn=export_csv, inputs=[csv_state, include_header_cb, edit_dir_tb], outputs=download_file)
             save_btn.click(fn=save_archives, inputs=[csv_tb, include_header_cb, check_count_cb], outputs=save_logs)

@@ -341,6 +341,8 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                         "Web": get("Web"),
                         "PublishingStatusTachiyomi": get("PublishingStatusTachiyomi"),
                         "SourceMihon": get("SourceMihon"),
+                        "PublicationYear": get("PublicationYear"),
+                        "PublicationMonth": get("PublicationMonth"),
                     }
                 except Exception:
                     return {
@@ -353,6 +355,8 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                         "Web": "",
                         "PublishingStatusTachiyomi": "",
                         "SourceMihon": "",
+                        "PublicationYear": "",
+                        "PublicationMonth": "",
                     }
 
             def _build_xml_from_fields(fields: dict) -> bytes:
@@ -367,6 +371,8 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                     "Web",
                     "PublishingStatusTachiyomi",
                     "SourceMihon",
+                    "PublicationYear",
+                    "PublicationMonth",
                 ]:
                     val = (fields.get(tag) or "").strip()
                     etree.SubElement(root, tag).text = val
@@ -413,6 +419,8 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                 "Web",
                 "PublishingStatusTachiyomi",
                 "SourceMihon",
+                "PublicationYear",
+                "PublicationMonth",
             ]
 
             def _sort_archives(archives: list[str], sort_mode: str) -> list[str]:
@@ -471,7 +479,7 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                         if xml_bytes is None:
                             base = os.path.splitext(base_name)[0]
                             series = os.path.basename(os.path.dirname(ap)) if os.path.dirname(ap) else ""
-                            writer.writerow([base_name, base, series, "", "", "", "", "", "", ""]) 
+                            writer.writerow([base_name, base, series, "", "", "", "", "", "", "", "", ""]) 
                             yield log(f"[{i}/{len(archives)}] 无 ComicInfo.xml -> 预填 Title='{base}', Series='{series}'")
                         else:
                             fields = _parse_xml_fields(xml_bytes)
@@ -486,11 +494,13 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                                 fields.get("Web", ""),
                                 fields.get("PublishingStatusTachiyomi", ""),
                                 fields.get("SourceMihon", ""),
+                                fields.get("PublicationYear", ""),
+                                fields.get("PublicationMonth", ""),
                             ])
                             yield log(f"[{i}/{len(archives)}] 读取 ComicInfo.xml 成功 -> {base_name}")
                     except Exception as e:
                         # 出错也写入空行保持行数一致
-                        writer.writerow([os.path.basename(ap)] + ["" for _ in range(9)])
+                        writer.writerow([os.path.basename(ap)] + ["" for _ in range(11)])
                         yield log(f"[{i}/{len(archives)}] 读取失败 -> {base_name}: {e}")
 
                 # 最终产出CSV文本与最终日志
@@ -581,8 +591,8 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                         if row is None:
                             yield log(f"[{idx+1}/{total}] 跳过：CSV 未提供对应行 -> {name}")
                             continue
-                        if len(row) < 10:
-                            row = row + [""] * (10 - len(row))
+                        if len(row) < 12:
+                            row = row + [""] * (12 - len(row))
                         fields = {
                             "Title": row[1],
                             "Series": row[2],
@@ -593,6 +603,8 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                             "Web": row[7],
                             "PublishingStatusTachiyomi": row[8],
                             "SourceMihon": row[9],
+                            "PublicationYear": row[10],
+                            "PublicationMonth": row[11],
                         }
                         xml_bytes = _build_xml_from_fields(fields)
                         ok = _write_xml_to_archive(ap, xml_bytes)
@@ -623,7 +635,7 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                             if xml_bytes is None:
                                 base = os.path.splitext(base_name)[0]
                                 series = os.path.basename(os.path.dirname(ap)) if os.path.dirname(ap) else ""
-                                writer.writerow([base_name, base, series, "", "", "", "", "", "", ""]) 
+                                writer.writerow([base_name, base, series, "", "", "", "", "", "", "", "", ""]) 
                             else:
                                 fields = _parse_xml_fields(xml_bytes)
                                 writer.writerow([
@@ -637,9 +649,11 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                                     fields.get("Web", ""),
                                     fields.get("PublishingStatusTachiyomi", ""),
                                     fields.get("SourceMihon", ""),
+                                    fields.get("PublicationYear", ""),
+                                    fields.get("PublicationMonth", ""),
                                 ])
                         except Exception:
-                            writer.writerow([base_name] + [""] * 9)
+                            writer.writerow([base_name] + [""] * 11)
                     csv_text = output.getvalue()
                 
                 rows = list(csv.reader(io.StringIO(csv_text or "")))

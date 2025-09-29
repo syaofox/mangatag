@@ -299,20 +299,15 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
             csv_tb = gr.Textbox(label="CSV 编辑区", lines=18)
             csv_state = gr.State("")
 
-            with gr.Accordion("下载上传", open=True):
-                with gr.Row():
-                    with gr.Column():
-                        gen_link_btn = gr.Button("生成下载链接")
-                        download_file = gr.File(label="下载文件")
-                
-                import_file = gr.File(label="导入CSV", file_types=[".csv"]) 
-           
+            
 
             # ---------------- 批量编辑控件区（含简繁转换下放，可折叠） ----------------
             with gr.Accordion("批量编辑", open=False):
-                gr.Markdown("**批量编辑（作用于下方 CSV 文本）**\n- 先选择需要操作的列（默认从首行表头自动读取）。\n- 勾选“包含表头”时，首行不会被修改。")
                 with gr.Row():
                     columns_ms = gr.Dropdown(label="选择批量编辑列", choices=[], value=[], multiselect=True, allow_custom_value=False)
+                with gr.Row():
+                    do_simplify_cols_btn = gr.Button("所选列：繁体转简体")
+                    do_traditionalize_cols_btn = gr.Button("所选列：简体转繁体")                
                 with gr.Row():
                     batch_set_val = gr.Textbox(label="批量置为：值", placeholder="将所选列全部设置为此值")
                     do_batch_set_btn = gr.Button("执行批量置为")
@@ -325,9 +320,17 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                     do_prefix_btn = gr.Button("添加前缀")
                     suffix_val = gr.Textbox(label="后缀")
                     do_suffix_btn = gr.Button("添加后缀")
+                
+
+            # ---------------- 下载上传控件区 ----------------
+            with gr.Accordion("下载上传", open=True):
                 with gr.Row():
-                    do_simplify_cols_btn = gr.Button("所选列：繁体转简体")
-                    do_traditionalize_cols_btn = gr.Button("所选列：简体转繁体")
+                    with gr.Column():
+                        gen_link_btn = gr.Button("生成下载链接")
+                        download_file = gr.File(label="下载文件")
+                
+                import_file = gr.File(label="导入CSV", file_types=[".csv"]) 
+           
 
             check_count_cb = gr.Checkbox(label="检测文档数量一致（CSV 与扫描数量需一致）", value=True)     
             save_btn = gr.Button("保存修改到压缩包")

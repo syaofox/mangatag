@@ -309,7 +309,7 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                     do_simplify_cols_btn = gr.Button("所选列：繁体转简体")
                     do_traditionalize_cols_btn = gr.Button("所选列：简体转繁体")                
                 with gr.Row():
-                    batch_set_val = gr.Textbox(label="批量置为：值", placeholder="将所选列全部设置为此值")
+                    batch_set_val = gr.Textbox(label="批量置为：值", placeholder="将所选列全部设置为此值", lines=2,max_lines=6)
                     do_batch_set_btn = gr.Button("执行批量置为")
                 with gr.Row():
                     fr_find = gr.Textbox(label="查找内容")
@@ -577,6 +577,48 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                 while pruned and all((c is None or str(c).strip() == "") for c in pruned[-1]):
                     pruned.pop()
                 return pruned
+
+            # 当只选择单个列时，自动用首行对应值填充“批量置为：值”
+            def autofill_batch_set_value(csv_text: str, include_header: bool, selected_columns: list[str]):
+                try:
+                    # 仅在单选且非“选择全部”时生效
+                    if not csv_text or not selected_columns or len(selected_columns) != 1:
+                        return gr.update()
+                    col = selected_columns[0]
+                    if col == _ALL_MARK:
+                        return gr.update()
+                    import io, csv
+                    rows = list(csv.reader(io.StringIO(csv_text)))
+                    if not rows:
+                        return gr.update()
+                    header = [c.strip() for c in rows[0]] if rows else []
+                    if include_header and header[:1] == ["FileName"]:
+                        name_to_idx = {name: idx for idx, name in enumerate(header)}
+                        idx = name_to_idx.get(col)
+                        data_rows = rows[1:]
+                    else:
+                        base_headers = _csv_headers
+                        try:
+                            idx = base_headers.index(col)
+                        except ValueError:
+                            idx = None
+                        data_rows = rows
+                    if idx is None:
+                        return gr.update()
+                    # 获取首个有效数据行的该列值
+                    first_val = None
+                    for r in data_rows:
+                        if not r:
+                            continue
+                        if len(r) <= idx:
+                            continue
+                        first_val = r[idx]
+                        break
+                    if first_val is None:
+                        first_val = ""
+                    return gr.update(value=first_val)
+                except Exception:
+                    return gr.update()
 
             def save_archives(csv_text: str, include_header: bool, check_count: bool):
                 # 流式输出日志：逐个压缩包写入并产生日志
@@ -931,6 +973,8 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
             # CSV/表头变化时刷新批量编辑列候选（保留当前选择）
             include_header_cb.change(fn=refresh_batch_columns, inputs=[csv_tb, include_header_cb, columns_ms], outputs=[columns_ms])
             csv_tb.change(fn=refresh_batch_columns, inputs=[csv_tb, include_header_cb, columns_ms], outputs=[columns_ms])
+            # 单列选择时自动填充值
+            columns_ms.change(fn=autofill_batch_set_value, inputs=[csv_tb, include_header_cb, columns_ms], outputs=[batch_set_val])
             # 刷新与选择目录的事件
             refresh_dirs_btn.click(fn=list_level1_subdirs, inputs=[base_path_tb], outputs=[dir_list_dd])
             dir_list_dd.change(fn=set_edit_dir_from_choice, inputs=[dir_list_dd, base_path_tb], outputs=[edit_dir_tb])

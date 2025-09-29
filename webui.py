@@ -281,6 +281,15 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
 
         with gr.Tab("编辑压缩包内XML"):
             gr.Markdown("**扫描目录中的 .cbz/.zip，读取 ComicInfo.xml 后在下方 CSV 文本中编辑并保存回压缩包**\n\n- 每行对应一个压缩包；若无 ComicInfo.xml 则输出预填信息。\n- 第一列为 FileName（固定，用于校验），其余列为元数据（Title 列名可自由修改，不影响解析）。\n- 字段以逗号分隔，符合CSV标准（引号转义）。")
+            # 目录选择控件：基路径 + 刷新 + 下拉展示一级子目录，选择后填充到下方目录输入框
+            with gr.Row():
+                with gr.Column(scale=7):
+                    dir_list_dd = gr.Dropdown(label="漫画文件夹列表", choices=[], value=None)
+                with gr.Column(scale=3):
+                    with gr.Row():
+                        base_path_tb = gr.Textbox(label="基路径", placeholder="如 /home/user/dev/mangatag/outputs",scale=4)
+                        refresh_dirs_btn = gr.Button("刷新",scale=1)
+                
             edit_dir_tb = gr.Textbox(label="章节压缩包目录", placeholder="如 /path/to/comic/dir")
             scan_btn = gr.Button("扫描目录并读取 ComicInfo.xml")                   
             include_header_cb = gr.Checkbox(label="包含表头", value=True)
@@ -422,6 +431,29 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                 "PublicationYear",
                 "PublicationMonth",
             ]
+
+            # 刷新一级子目录
+            def list_level1_subdirs(base_path: str):
+                try:
+                    if not base_path or not os.path.isdir(base_path):
+                        return gr.update(choices=[], value=None)
+                    entries = []
+                    for name in sorted(os.listdir(base_path)):
+                        full_path = os.path.join(base_path, name)
+                        if os.path.isdir(full_path):
+                            # 仅显示目录名作为选项
+                            entries.append(name)
+                    return gr.update(choices=entries, value=None)
+                except Exception:
+                    return gr.update(choices=[], value=None)
+
+            # 选择子目录后，用基路径拼接出完整路径并填充
+            def set_edit_dir_from_choice(choice: str, base_path: str):
+                if not choice:
+                    return ""
+                base = base_path or ""
+                full_path = os.path.abspath(os.path.join(base, choice))
+                return full_path
 
             def _sort_archives(archives: list[str], sort_mode: str) -> list[str]:
                 # sort_mode: "按字母顺序" | "按数字大小顺序"
@@ -814,6 +846,9 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
             def _set_csv_state(text: str):
                 return text or ""
             csv_tb.change(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
+            # 刷新与选择目录的事件
+            refresh_dirs_btn.click(fn=list_level1_subdirs, inputs=[base_path_tb], outputs=[dir_list_dd])
+            dir_list_dd.change(fn=set_edit_dir_from_choice, inputs=[dir_list_dd, base_path_tb], outputs=[edit_dir_tb])
             # 扫描后将CSV内容写入state
             scan_btn.click(fn=scan_archives, inputs=[edit_dir_tb, include_header_cb, sort_dd], outputs=[csv_tb, scan_logs]).then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
             # 导入后将CSV内容写入state

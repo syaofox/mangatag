@@ -785,16 +785,42 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                 except Exception:
                     return []
 
-            # 根据当前CSV内容刷新可选列
-            def refresh_batch_columns(csv_text: str, include_header: bool):
+            # 特殊选项：选择全部
+            _ALL_MARK = "【选择全部】"
+
+            # 根据当前CSV内容刷新可选列，尽量保留当前已选
+            def refresh_batch_columns(csv_text: str, include_header: bool, current_selected: list[str] | None = None):
                 headers = _extract_headers(csv_text or "") if include_header else _csv_headers
                 # 默认候选：去掉FileName，仅保留数据列
                 candidates = [h for h in headers if h and h != "FileName"] or _csv_headers[1:]
+                candidates_with_all = [_ALL_MARK] + candidates
                 # 默认选择：指定的十列
                 default_select = [h for h in candidates if h in [
                     "Title","Series","Summary","Writer","Genre","Web","PublishingStatusTachiyomi","SourceMihon","PublicationYear","PublicationMonth"
                 ]]
-                return gr.update(choices=candidates, value=default_select)
+                # 计算保留后的选择
+                sel = current_selected or []
+                if sel:
+                    if _ALL_MARK in sel:
+                        new_value = candidates
+                    else:
+                        new_value = [x for x in sel if x in candidates]
+                        if not new_value:
+                            new_value = default_select
+                else:
+                    new_value = default_select
+                return gr.update(choices=candidates_with_all, value=new_value)
+
+            # 解析选择列，支持“选择全部”
+            def _resolve_selected_columns(csv_text: str, include_header: bool, selected_columns: list[str] | None) -> list[str]:
+                selected_columns = selected_columns or []
+                if not selected_columns:
+                    return []
+                headers = _extract_headers(csv_text or "") if include_header else _csv_headers
+                candidates = [h for h in headers if h and h != "FileName"] or _csv_headers[1:]
+                if _ALL_MARK in selected_columns:
+                    return candidates
+                return [c for c in selected_columns if c in candidates]
 
             # 通用批处理：给定列名列表，执行行处理回调
             def _batch_apply(csv_text: str, include_header: bool, selected_columns: list[str], row_mutator):
@@ -851,7 +877,8 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                     for j in idxs:
                         row[j] = value or ""
                     return row
-                return _batch_apply(csv_text, include_header, columns or [], mut)
+                cols = _resolve_selected_columns(csv_text, include_header, columns)
+                return _batch_apply(csv_text, include_header, cols, mut)
 
             def batch_find_replace(csv_text: str, include_header: bool, columns: list[str], find_str: str, replace_str: str):
                 find_s = find_str or ""
@@ -862,7 +889,8 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                     for j in idxs:
                         row[j] = (row[j] or "").replace(find_s, rep_s)
                     return row
-                return _batch_apply(csv_text, include_header, columns or [], mut)
+                cols = _resolve_selected_columns(csv_text, include_header, columns)
+                return _batch_apply(csv_text, include_header, cols, mut)
 
             def batch_prefix(csv_text: str, include_header: bool, columns: list[str], prefix: str):
                 pre = prefix or ""
@@ -870,7 +898,8 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                     for j in idxs:
                         row[j] = pre + (row[j] or "")
                     return row
-                return _batch_apply(csv_text, include_header, columns or [], mut)
+                cols = _resolve_selected_columns(csv_text, include_header, columns)
+                return _batch_apply(csv_text, include_header, cols, mut)
 
             def batch_suffix(csv_text: str, include_header: bool, columns: list[str], suffix: str):
                 suf = suffix or ""
@@ -878,7 +907,8 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                     for j in idxs:
                         row[j] = (row[j] or "") + suf
                     return row
-                return _batch_apply(csv_text, include_header, columns or [], mut)
+                cols = _resolve_selected_columns(csv_text, include_header, columns)
+                return _batch_apply(csv_text, include_header, cols, mut)
 
             def batch_convert(csv_text: str, include_header: bool, columns: list[str], mode: str):
                 # mode: 't2s' 或 's2t'
@@ -891,26 +921,27 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                         if row[j]:
                             row[j] = converter.convert(row[j])
                     return row
-                return _batch_apply(csv_text, include_header, columns or [], mut)
+                cols = _resolve_selected_columns(csv_text, include_header, columns)
+                return _batch_apply(csv_text, include_header, cols, mut)
 
             # 文本变化时更新state
             def _set_csv_state(text: str):
                 return text or ""
             csv_tb.change(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
-            # CSV/表头变化时刷新批量编辑列候选
-            include_header_cb.change(fn=refresh_batch_columns, inputs=[csv_tb, include_header_cb], outputs=[columns_ms])
-            csv_tb.change(fn=refresh_batch_columns, inputs=[csv_tb, include_header_cb], outputs=[columns_ms])
+            # CSV/表头变化时刷新批量编辑列候选（保留当前选择）
+            include_header_cb.change(fn=refresh_batch_columns, inputs=[csv_tb, include_header_cb, columns_ms], outputs=[columns_ms])
+            csv_tb.change(fn=refresh_batch_columns, inputs=[csv_tb, include_header_cb, columns_ms], outputs=[columns_ms])
             # 刷新与选择目录的事件
             refresh_dirs_btn.click(fn=list_level1_subdirs, inputs=[base_path_tb], outputs=[dir_list_dd])
             dir_list_dd.change(fn=set_edit_dir_from_choice, inputs=[dir_list_dd, base_path_tb], outputs=[edit_dir_tb])
             # 扫描后将CSV内容写入state
             scan_btn.click(fn=scan_archives, inputs=[edit_dir_tb, include_header_cb, sort_dd], outputs=[csv_tb, scan_logs])\
                 .then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)\
-                .then(fn=refresh_batch_columns, inputs=[csv_tb, include_header_cb], outputs=[columns_ms])
+                .then(fn=refresh_batch_columns, inputs=[csv_tb, include_header_cb, columns_ms], outputs=[columns_ms])
             # 导入后将CSV内容写入state
             import_file.upload(fn=import_csv, inputs=[import_file, include_header_cb], outputs=csv_tb)\
                 .then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)\
-                .then(fn=refresh_batch_columns, inputs=[csv_tb, include_header_cb], outputs=[columns_ms])
+                .then(fn=refresh_batch_columns, inputs=[csv_tb, include_header_cb, columns_ms], outputs=[columns_ms])
             # 批量按钮功能
             do_batch_set_btn.click(fn=batch_set, inputs=[csv_tb, include_header_cb, columns_ms, batch_set_val], outputs=csv_tb)\
                 .then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)

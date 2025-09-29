@@ -293,7 +293,7 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
             edit_dir_tb = gr.Textbox(label="章节压缩包目录", placeholder="如 /path/to/comic/dir")
             scan_btn = gr.Button("扫描目录并读取 ComicInfo.xml")                   
             include_header_cb = gr.Checkbox(label="包含表头", value=True)
-            sort_dd = gr.Dropdown(label="排序方式", choices=["按字母顺序", "按数字大小顺序"], value="按字母顺序")
+            sort_dd = gr.Dropdown(label="排序方式", choices=["按数字大小顺序","按字母顺序","按Number列数字大小排序"], value="按数字大小顺序")
             
             scan_logs = gr.Textbox(label="扫描日志", lines=6, max_lines=6)
             csv_tb = gr.Textbox(label="CSV 编辑区", lines=18)
@@ -519,7 +519,51 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                     return
 
                 archives = list_archives(comic_dir)
-                archives = _sort_archives(archives, sort_mode)
+                cached_fields: dict[str, dict] = {}
+                # 新增：按 Number 列数字大小排序
+                if sort_mode == "按Number列数字大小排序":
+                    # 预读取各压缩包的 Number 字段
+                    for ap in archives:
+                        try:
+                            xml_bytes = _read_xml_from_archive(ap)
+                            if xml_bytes is not None:
+                                fields = _parse_xml_fields(xml_bytes)
+                            else:
+                                fields = None
+                        except Exception:
+                            fields = None
+                        if fields is not None:
+                            cached_fields[ap] = fields
+
+                    def parse_num(val: str):
+                        if val is None:
+                            return None
+                        s = str(val).strip()
+                        if s == "":
+                            return None
+                        try:
+                            # 先尝试整数
+                            return int(s)
+                        except Exception:
+                            try:
+                                return float(s)
+                            except Exception:
+                                return None
+
+                    def key_num(path: str):
+                        fields = cached_fields.get(path)
+                        num_val = None
+                        if fields is not None:
+                            num_val = parse_num(fields.get("Number"))
+                        # 无数字的排在后面
+                        has_num_flag = 0 if (num_val is not None) else 1
+                        num_sort = num_val if num_val is not None else 0
+                        name = os.path.basename(path).lower()
+                        return (has_num_flag, num_sort, name)
+
+                    archives = sorted(archives, key=key_num)
+                else:
+                    archives = _sort_archives(archives, sort_mode)
                 _edit_state["archives"] = archives
                 yield log(f"发现压缩包：{len(archives)} 个，排序：{sort_mode}")
 
@@ -531,14 +575,18 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                 for i, ap in enumerate(archives, start=1):
                     base_name = os.path.basename(ap)
                     try:
-                        xml_bytes = _read_xml_from_archive(ap)
-                        if xml_bytes is None:
+                        # 优先使用缓存，避免重复读取
+                        fields = cached_fields.get(ap) if 'cached_fields' in locals() else None
+                        if fields is None:
+                            xml_bytes = _read_xml_from_archive(ap)
+                            if xml_bytes is not None:
+                                fields = _parse_xml_fields(xml_bytes)
+                        if fields is None:
                             base = os.path.splitext(base_name)[0]
                             series = os.path.basename(os.path.dirname(ap)) if os.path.dirname(ap) else ""
                             writer.writerow([base_name, base, series, "", "", "", "", "", "", "", "", ""]) 
                             yield log(f"[{i}/{len(archives)}] 无 ComicInfo.xml -> 预填 Title='{base}', Series='{series}'")
                         else:
-                            fields = _parse_xml_fields(xml_bytes)
                             writer.writerow([
                                 base_name,
                                 fields.get("Title", ""),

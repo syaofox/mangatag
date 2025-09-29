@@ -298,16 +298,37 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
             scan_logs = gr.Textbox(label="扫描日志", lines=6, max_lines=6)
             csv_tb = gr.Textbox(label="CSV 编辑区", lines=18)
             csv_state = gr.State("")
-           
-            with gr.Row():
-                simplify_btn = gr.Button("繁体转简体")
-                traditionalize_btn = gr.Button("简体转繁体")
-                with gr.Column():
-                    gen_link_btn = gr.Button("生成下载链接")
-                    download_file = gr.File(label="下载文件")
+
+            with gr.Accordion("下载上传", open=True):
+                with gr.Row():
+                    with gr.Column():
+                        gen_link_btn = gr.Button("生成下载链接")
+                        download_file = gr.File(label="下载文件")
                 
-            
-            import_file = gr.File(label="导入CSV", file_types=[".csv"]) 
+                import_file = gr.File(label="导入CSV", file_types=[".csv"]) 
+           
+
+            # ---------------- 批量编辑控件区（含简繁转换下放，可折叠） ----------------
+            with gr.Accordion("批量编辑", open=False):
+                gr.Markdown("**批量编辑（作用于下方 CSV 文本）**\n- 先选择需要操作的列（默认从首行表头自动读取）。\n- 勾选“包含表头”时，首行不会被修改。")
+                with gr.Row():
+                    columns_ms = gr.Dropdown(label="选择批量编辑列", choices=[], value=[], multiselect=True, allow_custom_value=False)
+                with gr.Row():
+                    batch_set_val = gr.Textbox(label="批量置为：值", placeholder="将所选列全部设置为此值")
+                    do_batch_set_btn = gr.Button("执行批量置为")
+                with gr.Row():
+                    fr_find = gr.Textbox(label="查找内容")
+                    fr_replace = gr.Textbox(label="替换为")
+                    do_find_replace_btn = gr.Button("执行查找替换")
+                with gr.Row():
+                    prefix_val = gr.Textbox(label="前缀")
+                    do_prefix_btn = gr.Button("添加前缀")
+                    suffix_val = gr.Textbox(label="后缀")
+                    do_suffix_btn = gr.Button("添加后缀")
+                with gr.Row():
+                    do_simplify_cols_btn = gr.Button("所选列：繁体转简体")
+                    do_traditionalize_cols_btn = gr.Button("所选列：简体转繁体")
+
             check_count_cb = gr.Checkbox(label="检测文档数量一致（CSV 与扫描数量需一致）", value=True)     
             save_btn = gr.Button("保存修改到压缩包")
             
@@ -750,113 +771,156 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                 except Exception:
                     return ""
 
-            # 繁体转简体功能
-            def simplify_text(csv_text: str):
-                if not csv_text or not csv_text.strip():
+            # 辅助：从CSV读取表头
+            def _extract_headers(csv_text: str):
+                try:
+                    import io, csv
+                    rows = list(csv.reader(io.StringIO(csv_text or "")))
+                    if not rows:
+                        return []
+                    return [c.strip() for c in rows[0]]
+                except Exception:
+                    return []
+
+            # 根据当前CSV内容刷新可选列
+            def refresh_batch_columns(csv_text: str, include_header: bool):
+                headers = _extract_headers(csv_text or "") if include_header else _csv_headers
+                # 默认候选：去掉FileName，仅保留数据列
+                candidates = [h for h in headers if h and h != "FileName"] or _csv_headers[1:]
+                # 默认选择：指定的十列
+                default_select = [h for h in candidates if h in [
+                    "Title","Series","Summary","Writer","Genre","Web","PublishingStatusTachiyomi","SourceMihon","PublicationYear","PublicationMonth"
+                ]]
+                return gr.update(choices=candidates, value=default_select)
+
+            # 通用批处理：给定列名列表，执行行处理回调
+            def _batch_apply(csv_text: str, include_header: bool, selected_columns: list[str], row_mutator):
+                if not csv_text or not selected_columns:
                     return csv_text
                 try:
                     import io, csv
-                    # 初始化OpenCC转换器，使用繁体到简体的配置
-                    converter = opencc.OpenCC('t2s')  # Traditional to Simplified
-                    
-                    # 解析CSV内容
                     reader = csv.reader(io.StringIO(csv_text))
                     rows = list(reader)
                     if not rows:
                         return csv_text
-                    
-                    # 检查是否有表头
-                    has_header = False
-                    if rows and len(rows[0]) >= 10:
-                        first_row = [cell.strip() for cell in rows[0]]
-                        if first_row[:1] == ["FileName"]:
-                            has_header = True
-                    
-                    # 需要转换的列索引（排除FileName列）
-                    convert_columns = [1, 2, 4, 5, 6]  # Title, Series, Summary, Writer, Genre
-                    
-                    # 处理每一行
+                    # 建立列名 -> 索引映射
+                    header = [c.strip() for c in rows[0]] if rows else []
+                    name_to_idx = {name: idx for idx, name in enumerate(header)}
+                    indices = []
+                    if include_header and header and header[:1] == ["FileName"]:
+                        for col in selected_columns:
+                            idx = name_to_idx.get(col)
+                            if idx is not None and idx != 0:
+                                indices.append(idx)
+                    else:
+                        # 无表头时，基于内置顺序映射
+                        base_headers = _csv_headers
+                        for col in selected_columns:
+                            try:
+                                idx = base_headers.index(col)
+                            except ValueError:
+                                idx = None
+                            if idx is not None and idx != 0:
+                                indices.append(idx)
+                    if not indices:
+                        return csv_text
+                    # 处理
                     output = io.StringIO()
                     writer = csv.writer(output)
-                    
                     for i, row in enumerate(rows):
-                        if len(row) < 10:
-                            # 补齐到10列
-                            row = row + [""] * (10 - len(row))
-                        
-                        # 转换指定列的内容
-                        for col_idx in convert_columns:
-                            if col_idx < len(row) and row[col_idx]:
-                                row[col_idx] = converter.convert(row[col_idx])
-                        
+                        is_header_row = (i == 0 and include_header and header[:1] == ["FileName"]) 
+                        if is_header_row:
+                            writer.writerow(row)
+                            continue
+                        # 补齐到至少与最大索引同长
+                        max_needed = max(indices)
+                        if len(row) <= max_needed:
+                            row = row + [""] * (max_needed + 1 - len(row))
+                        row = row_mutator(row, indices)
                         writer.writerow(row)
-                    
                     return output.getvalue()
-                except Exception as e:
-                    # 如果转换失败，返回原文本
+                except Exception:
                     return csv_text
 
-            # 简体转繁体功能
-            def traditionalize_text(csv_text: str):
-                if not csv_text or not csv_text.strip():
+            # 批量操作实现
+            def batch_set(csv_text: str, include_header: bool, columns: list[str], value: str):
+                def mut(row, idxs):
+                    for j in idxs:
+                        row[j] = value or ""
+                    return row
+                return _batch_apply(csv_text, include_header, columns or [], mut)
+
+            def batch_find_replace(csv_text: str, include_header: bool, columns: list[str], find_str: str, replace_str: str):
+                find_s = find_str or ""
+                rep_s = replace_str or ""
+                if find_s == "":
                     return csv_text
+                def mut(row, idxs):
+                    for j in idxs:
+                        row[j] = (row[j] or "").replace(find_s, rep_s)
+                    return row
+                return _batch_apply(csv_text, include_header, columns or [], mut)
+
+            def batch_prefix(csv_text: str, include_header: bool, columns: list[str], prefix: str):
+                pre = prefix or ""
+                def mut(row, idxs):
+                    for j in idxs:
+                        row[j] = pre + (row[j] or "")
+                    return row
+                return _batch_apply(csv_text, include_header, columns or [], mut)
+
+            def batch_suffix(csv_text: str, include_header: bool, columns: list[str], suffix: str):
+                suf = suffix or ""
+                def mut(row, idxs):
+                    for j in idxs:
+                        row[j] = (row[j] or "") + suf
+                    return row
+                return _batch_apply(csv_text, include_header, columns or [], mut)
+
+            def batch_convert(csv_text: str, include_header: bool, columns: list[str], mode: str):
+                # mode: 't2s' 或 's2t'
                 try:
-                    import io, csv
-                    # 初始化OpenCC转换器，使用简体到繁体的配置
-                    converter = opencc.OpenCC('s2t')  # Simplified to Traditional
-                    
-                    # 解析CSV内容
-                    reader = csv.reader(io.StringIO(csv_text))
-                    rows = list(reader)
-                    if not rows:
-                        return csv_text
-                    
-                    # 检查是否有表头
-                    has_header = False
-                    if rows and len(rows[0]) >= 10:
-                        first_row = [cell.strip() for cell in rows[0]]
-                        if first_row[:1] == ["FileName"]:
-                            has_header = True
-                    
-                    # 需要转换的列索引（排除FileName列）
-                    convert_columns = [1, 2, 4, 5, 6]  # Title, Series, Summary, Writer, Genre
-                    
-                    # 处理每一行
-                    output = io.StringIO()
-                    writer = csv.writer(output)
-                    
-                    for i, row in enumerate(rows):
-                        if len(row) < 10:
-                            # 补齐到10列
-                            row = row + [""] * (10 - len(row))
-                        
-                        # 转换指定列的内容
-                        for col_idx in convert_columns:
-                            if col_idx < len(row) and row[col_idx]:
-                                row[col_idx] = converter.convert(row[col_idx])
-                        
-                        writer.writerow(row)
-                    
-                    return output.getvalue()
-                except Exception as e:
-                    # 如果转换失败，返回原文本
+                    converter = opencc.OpenCC(mode)
+                except Exception:
                     return csv_text
+                def mut(row, idxs):
+                    for j in idxs:
+                        if row[j]:
+                            row[j] = converter.convert(row[j])
+                    return row
+                return _batch_apply(csv_text, include_header, columns or [], mut)
 
             # 文本变化时更新state
             def _set_csv_state(text: str):
                 return text or ""
             csv_tb.change(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
+            # CSV/表头变化时刷新批量编辑列候选
+            include_header_cb.change(fn=refresh_batch_columns, inputs=[csv_tb, include_header_cb], outputs=[columns_ms])
+            csv_tb.change(fn=refresh_batch_columns, inputs=[csv_tb, include_header_cb], outputs=[columns_ms])
             # 刷新与选择目录的事件
             refresh_dirs_btn.click(fn=list_level1_subdirs, inputs=[base_path_tb], outputs=[dir_list_dd])
             dir_list_dd.change(fn=set_edit_dir_from_choice, inputs=[dir_list_dd, base_path_tb], outputs=[edit_dir_tb])
             # 扫描后将CSV内容写入state
-            scan_btn.click(fn=scan_archives, inputs=[edit_dir_tb, include_header_cb, sort_dd], outputs=[csv_tb, scan_logs]).then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
+            scan_btn.click(fn=scan_archives, inputs=[edit_dir_tb, include_header_cb, sort_dd], outputs=[csv_tb, scan_logs])\
+                .then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)\
+                .then(fn=refresh_batch_columns, inputs=[csv_tb, include_header_cb], outputs=[columns_ms])
             # 导入后将CSV内容写入state
-            import_file.upload(fn=import_csv, inputs=[import_file, include_header_cb], outputs=csv_tb).then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
-            # 转换为简体按钮功能
-            simplify_btn.click(fn=simplify_text, inputs=csv_tb, outputs=csv_tb).then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
-            # 转换为繁体按钮功能
-            traditionalize_btn.click(fn=traditionalize_text, inputs=csv_tb, outputs=csv_tb).then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
+            import_file.upload(fn=import_csv, inputs=[import_file, include_header_cb], outputs=csv_tb)\
+                .then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)\
+                .then(fn=refresh_batch_columns, inputs=[csv_tb, include_header_cb], outputs=[columns_ms])
+            # 批量按钮功能
+            do_batch_set_btn.click(fn=batch_set, inputs=[csv_tb, include_header_cb, columns_ms, batch_set_val], outputs=csv_tb)\
+                .then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
+            do_find_replace_btn.click(fn=batch_find_replace, inputs=[csv_tb, include_header_cb, columns_ms, fr_find, fr_replace], outputs=csv_tb)\
+                .then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
+            do_prefix_btn.click(fn=batch_prefix, inputs=[csv_tb, include_header_cb, columns_ms, prefix_val], outputs=csv_tb)\
+                .then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
+            do_suffix_btn.click(fn=batch_suffix, inputs=[csv_tb, include_header_cb, columns_ms, suffix_val], outputs=csv_tb)\
+                .then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
+            do_simplify_cols_btn.click(fn=batch_convert, inputs=[csv_tb, include_header_cb, columns_ms, gr.State('t2s')], outputs=csv_tb)\
+                .then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
+            do_traditionalize_cols_btn.click(fn=batch_convert, inputs=[csv_tb, include_header_cb, columns_ms, gr.State('s2t')], outputs=csv_tb)\
+                .then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
             # 生成下载链接：将文件路径赋值到 gr.File
             gen_link_btn.click(fn=export_csv, inputs=[csv_state, include_header_cb, edit_dir_tb], outputs=download_file)
             save_btn.click(fn=save_archives, inputs=[csv_tb, include_header_cb, check_count_cb], outputs=save_logs)

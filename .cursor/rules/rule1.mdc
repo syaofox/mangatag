@@ -1,0 +1,8 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+- 用中文回答
+- 项目用uv管理python环境
+- 运行python脚本请用 uv run

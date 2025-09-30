@@ -459,19 +459,60 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                 "PublicationMonth",
             ]
 
-            # 刷新一级子目录
+            # 递归扫描目录，查找包含zip或cbz文件的目录
             def list_level1_subdirs(base_path: str):
+                print(f"[DEBUG] 开始扫描路径: {base_path}")
                 try:
                     if not base_path or not os.path.isdir(base_path):
+                        print(f"[DEBUG] 路径无效: {base_path}")
                         return gr.update(choices=[], value=None)
-                    entries = []
-                    for name in sorted(os.listdir(base_path)):
-                        full_path = os.path.join(base_path, name)
-                        if os.path.isdir(full_path):
-                            # 仅显示目录名作为选项
-                            entries.append(name)
+                    
+                    def scan_directory(path: str, current_level: int = 0) -> list[str]:
+                        """递归扫描目录，返回包含压缩文件的目录列表"""
+                        entries = []
+                        indent = "  " * current_level
+                        print(f"{indent}[DEBUG] 扫描目录: {path}")
+                        
+                        try:
+                            for name in sorted(os.listdir(path)):
+                                full_path = os.path.join(path, name)
+                                print(f"{indent}[DEBUG] 检查: {name}")
+                                
+                                if os.path.isdir(full_path):
+                                    # 检查当前目录是否包含压缩文件
+                                    has_archive = False
+                                    try:
+                                        sub_files = os.listdir(full_path)
+                                        print(f"{indent}[DEBUG] 子目录文件: {sub_files}")
+                                        for sub_name in sub_files:
+                                            if sub_name.lower().endswith(('.zip', '.cbz')):
+                                                has_archive = True
+                                                print(f"{indent}[DEBUG] 发现压缩文件: {sub_name}")
+                                                break
+                                    except Exception as e:
+                                        print(f"{indent}[DEBUG] 无法访问子目录 {name}: {e}")
+                                        continue
+                                    
+                                    if has_archive:
+                                        # 如果当前目录包含压缩文件，添加到结果中
+                                        relative_path = os.path.relpath(full_path, base_path)
+                                        entries.append(relative_path)
+                                        print(f"{indent}[DEBUG] ✓ 添加目录: {relative_path}")
+                                    else:
+                                        # 如果当前目录不包含压缩文件，递归检查子目录
+                                        print(f"{indent}[DEBUG] 当前目录无压缩文件，递归检查子目录...")
+                                        sub_entries = scan_directory(full_path, current_level + 1)
+                                        entries.extend(sub_entries)
+                        except Exception as e:
+                            print(f"{indent}[DEBUG] 扫描目录失败: {e}")
+                        
+                        return entries
+                    
+                    entries = scan_directory(base_path)
+                    print(f"[DEBUG] 最终结果: {entries}")
                     return gr.update(choices=entries, value=None)
-                except Exception:
+                except Exception as e:
+                    print(f"[DEBUG] 错误: {e}")
                     return gr.update(choices=[], value=None)
 
             # 选择子目录后，用基路径拼接出完整路径并填充

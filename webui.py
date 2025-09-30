@@ -1114,7 +1114,107 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                 .then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
             # 生成下载链接：将文件路径赋值到 gr.File
             gen_link_btn.click(fn=export_csv, inputs=[csv_state, include_header_cb, edit_dir_tb], outputs=download_file)
-            save_btn.click(fn=save_archives, inputs=[csv_tb, include_header_cb, check_count_cb], outputs=save_logs)
+
+            # 保存期间锁定控件，防止并发修改
+            def _set_interactive_all(enabled: bool):
+                targets = [
+                    base_path_tb,
+                    refresh_dirs_btn,
+                    dir_list_dd,
+                    edit_dir_tb,
+                    scan_btn,
+                    include_header_cb,
+                    sort_dd,
+                    csv_tb,
+                    columns_ms,
+                    do_simplify_all_btn,
+                    do_traditionalize_all_btn,
+                    do_simplify_cols_btn,
+                    do_traditionalize_cols_btn,
+                    batch_set_val,
+                    do_batch_set_btn,
+                    fr_find,
+                    fr_replace,
+                    do_find_replace_btn,
+                    prefix_val,
+                    do_prefix_btn,
+                    suffix_val,
+                    do_suffix_btn,
+                    gen_link_btn,
+                    import_file,
+                    check_count_cb,
+                    save_btn,
+                ]
+                return [gr.update(interactive=enabled) for _ in targets]
+
+            # 先禁用 → 执行保存 → 再启用
+            save_btn.click(
+                fn=lambda: _set_interactive_all(False),
+                inputs=[],
+                outputs=[
+                    base_path_tb,
+                    refresh_dirs_btn,
+                    dir_list_dd,
+                    edit_dir_tb,
+                    scan_btn,
+                    include_header_cb,
+                    sort_dd,
+                    csv_tb,
+                    columns_ms,
+                    do_simplify_all_btn,
+                    do_traditionalize_all_btn,
+                    do_simplify_cols_btn,
+                    do_traditionalize_cols_btn,
+                    batch_set_val,
+                    do_batch_set_btn,
+                    fr_find,
+                    fr_replace,
+                    do_find_replace_btn,
+                    prefix_val,
+                    do_prefix_btn,
+                    suffix_val,
+                    do_suffix_btn,
+                    gen_link_btn,
+                    import_file,
+                    check_count_cb,
+                    save_btn,
+                ],
+            ).then(
+                fn=save_archives,
+                inputs=[csv_tb, include_header_cb, check_count_cb],
+                outputs=save_logs,
+            ).then(
+                fn=lambda: _set_interactive_all(True),
+                inputs=[],
+                outputs=[
+                    base_path_tb,
+                    refresh_dirs_btn,
+                    dir_list_dd,
+                    edit_dir_tb,
+                    scan_btn,
+                    include_header_cb,
+                    sort_dd,
+                    csv_tb,
+                    columns_ms,
+                    do_simplify_all_btn,
+                    do_traditionalize_all_btn,
+                    do_simplify_cols_btn,
+                    do_traditionalize_cols_btn,
+                    batch_set_val,
+                    do_batch_set_btn,
+                    fr_find,
+                    fr_replace,
+                    do_find_replace_btn,
+                    prefix_val,
+                    do_prefix_btn,
+                    suffix_val,
+                    do_suffix_btn,
+                    gen_link_btn,
+                    import_file,
+                    check_count_cb,
+                    save_btn,
+                ],
+            )
 
 
 if __name__ == "__main__":

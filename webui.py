@@ -283,15 +283,14 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
             gr.Markdown("**扫描目录中的 .cbz/.zip，读取 ComicInfo.xml 后在下方 CSV 文本中编辑并保存回压缩包**\n\n- 每行对应一个压缩包；若无 ComicInfo.xml 则输出预填信息。\n- 第一列为 FileName（固定，用于校验），其余列为元数据（Title 列名可自由修改，不影响解析）。\n- 字段以逗号分隔，符合CSV标准（引号转义）。")
             # 目录选择控件：基路径 + 刷新 + 下拉展示一级子目录，选择后填充到下方目录输入框
             with gr.Row():
-                with gr.Column(scale=7):
-                    dir_list_dd = gr.Dropdown(label="漫画文件夹列表", choices=[], value=None)
                 with gr.Column(scale=3):
-                    with gr.Row():
-                        base_path_tb = gr.Textbox(label="基路径", placeholder="如 /home/user/dev/mangatag/outputs",scale=4)
-                        refresh_dirs_btn = gr.Button("刷新",scale=1)
-                
-            edit_dir_tb = gr.Textbox(label="章节压缩包目录", placeholder="如 /path/to/comic/dir")
-            scan_btn = gr.Button("扫描目录并读取 ComicInfo.xml")                   
+                    base_path_tb = gr.Textbox(label="基路径", placeholder="如 /home/user/dev/mangatag/outputs")
+                    refresh_dirs_btn = gr.Button("刷新",variant="primary")
+                    dir_list_dd = gr.Dropdown(label="漫画文件夹列表", choices=[], value=None)  
+
+                with gr.Column(scale=7):                    
+                    edit_dir_tb = gr.Textbox(label="章节压缩包目录", placeholder="如 /path/to/comic/dir")
+                    scan_btn = gr.Button("扫描目录并读取 ComicInfo.xml")                   
             include_header_cb = gr.Checkbox(label="包含表头", value=True)
             sort_dd = gr.Dropdown(label="排序方式", choices=["按数字大小顺序","按字母顺序","按Number列数字大小排序"], value="按数字大小顺序")
             

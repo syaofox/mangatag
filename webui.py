@@ -483,7 +483,7 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                                     has_archive = False
                                     try:
                                         sub_files = os.listdir(full_path)
-                                        print(f"{indent}[DEBUG] 子目录文件: {sub_files}")
+                                        print(f"{indent}[DEBUG] 子目录文件数量: {len(sub_files)}")
                                         for sub_name in sub_files:
                                             if sub_name.lower().endswith(('.zip', '.cbz')):
                                                 has_archive = True

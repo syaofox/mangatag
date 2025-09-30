@@ -303,10 +303,14 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
             # ---------------- 批量编辑控件区（含简繁转换下放，可折叠） ----------------
             with gr.Accordion("批量编辑", open=False):
                 with gr.Row():
+                    do_simplify_all_btn = gr.Button("全部列：繁体转简体（除FileName）")
+                    do_traditionalize_all_btn = gr.Button("全部列：简体转繁体（除FileName）")          
+                with gr.Row():
                     columns_ms = gr.Dropdown(label="选择批量编辑列", choices=[], value=[], multiselect=True, allow_custom_value=False)
                 with gr.Row():
                     do_simplify_cols_btn = gr.Button("所选列：繁体转简体")
-                    do_traditionalize_cols_btn = gr.Button("所选列：简体转繁体")                
+                    do_traditionalize_cols_btn = gr.Button("所选列：简体转繁体")
+                     
                 with gr.Row():
                     batch_set_val = gr.Textbox(label="批量置为：值", placeholder="将所选列全部设置为此值", lines=2,max_lines=6)
                     do_batch_set_btn = gr.Button("执行批量置为")
@@ -1013,6 +1017,22 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
                 cols = _resolve_selected_columns(csv_text, include_header, columns)
                 return _batch_apply(csv_text, include_header, cols, mut)
 
+            def batch_convert_all(csv_text: str, include_header: bool, mode: str):
+                # mode: 't2s' 或 's2t'，转换除FileName外的所有列
+                try:
+                    converter = opencc.OpenCC(mode)
+                except Exception:
+                    return csv_text
+                def mut(row, idxs):
+                    for j in idxs:
+                        if row[j]:
+                            row[j] = converter.convert(row[j])
+                    return row
+                # 获取除FileName外的所有列
+                headers = _extract_headers(csv_text or "") if include_header else _csv_headers
+                cols = [h for h in headers if h and h != "FileName"] or _csv_headers[1:]
+                return _batch_apply(csv_text, include_header, cols, mut)
+
             # 文本变化时更新state
             def _set_csv_state(text: str):
                 return text or ""
@@ -1045,6 +1065,10 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
             do_simplify_cols_btn.click(fn=batch_convert, inputs=[csv_tb, include_header_cb, columns_ms, gr.State('t2s')], outputs=csv_tb)\
                 .then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
             do_traditionalize_cols_btn.click(fn=batch_convert, inputs=[csv_tb, include_header_cb, columns_ms, gr.State('s2t')], outputs=csv_tb)\
+                .then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
+            do_simplify_all_btn.click(fn=batch_convert_all, inputs=[csv_tb, include_header_cb, gr.State('t2s')], outputs=csv_tb)\
+                .then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
+            do_traditionalize_all_btn.click(fn=batch_convert_all, inputs=[csv_tb, include_header_cb, gr.State('s2t')], outputs=csv_tb)\
                 .then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)
             # 生成下载链接：将文件路径赋值到 gr.File
             gen_link_btn.click(fn=export_csv, inputs=[csv_state, include_header_cb, edit_dir_tb], outputs=download_file)

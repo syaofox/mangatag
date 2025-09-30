@@ -1048,7 +1048,8 @@ with gr.Blocks(title="MangaTag | Manhuagui/Baozimh") as demo:
             # 扫描后将CSV内容写入state
             scan_btn.click(fn=scan_archives, inputs=[edit_dir_tb, include_header_cb, sort_dd], outputs=[csv_tb, scan_logs])\
                 .then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)\
-                .then(fn=refresh_batch_columns, inputs=[csv_tb, include_header_cb, columns_ms], outputs=[columns_ms])
+                .then(fn=refresh_batch_columns, inputs=[csv_tb, include_header_cb, columns_ms], outputs=[columns_ms])\
+                .then(fn=autofill_batch_set_value, inputs=[csv_tb, include_header_cb, columns_ms], outputs=batch_set_val)
             # 导入后将CSV内容写入state
             import_file.upload(fn=import_csv, inputs=[import_file, include_header_cb], outputs=csv_tb)\
                 .then(fn=_set_csv_state, inputs=csv_tb, outputs=csv_state)\

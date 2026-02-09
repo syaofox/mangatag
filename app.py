@@ -92,6 +92,7 @@ async def index(request: Request):
     csv_text = session.get("last_csv", "")
     scan_log = session.get("scan_log", "")
     save_log = session.get("save_log", "")
+    default_base_path = ALLOWED_BASE_PATHS[0] if ALLOWED_BASE_PATHS else ""
     return templates.TemplateResponse(
         "edit_xml.html",
         {
@@ -102,6 +103,7 @@ async def index(request: Request):
             "csv_headers": CSV_HEADERS,
             "all_mark": ALL_MARK,
             "sort_choices": ["按数字大小顺序", "按字母顺序", "按Number列数字大小排序"],
+            "default_base_path": default_base_path,
         },
     )
 

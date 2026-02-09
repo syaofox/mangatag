@@ -163,11 +163,45 @@ uv run python update_archives_with_xml.py "/path/to/comic/dir" "/path/to/xml/roo
 - `outputs/漫画名/章节目录/ComicInfo.xml`
 - `outputs/漫画名/章节目录/xml/ComicInfo.xml`
 
+### 4. 编辑压缩包内 XML（FastAPI + HTMX Web UI）
+
+在浏览器中扫描目录下的 .cbz/.zip，读取或预填 ComicInfo.xml，以 CSV 形式编辑后写回压缩包。支持批量简繁转换、查找替换、前缀后缀、导出/导入 CSV。
+
+#### 启动方式
+
+```bash
+uv run uvicorn app:app --host 0.0.0.0 --port 8000
+```
+
+浏览器访问 `http://localhost:8000`。
+
+#### 路径白名单（安全）
+
+服务端仅允许访问配置的根目录及其子路径，避免任意目录读写。通过环境变量配置：
+
+- **ALLOWED_BASE_PATHS**：允许的根目录，多个用英文逗号分隔。未配置时默认仅允许当前工作目录。
+- **SESSION_SECRET**（可选）：Session 签名密钥，生产环境请务必设置。
+
+示例：
+
+```bash
+export ALLOWED_BASE_PATHS="/home/user/comics,/home/user/outputs"
+uv run uvicorn app:app --host 0.0.0.0 --port 8000
+```
+
+#### 功能说明
+
+- **基路径 + 刷新**：列出包含 .zip/.cbz 的子目录，选择后填充「章节压缩包目录」。
+- **扫描**：读取该目录下所有压缩包内的 ComicInfo.xml（无则预填），生成 CSV；支持按数字/字母/Number 列排序。
+- **CSV 编辑**：第一列为 FileName（固定），其余列为 ComicInfo 字段；支持批量编辑与导入/导出 CSV。
+- **保存**：将 CSV 写回对应压缩包；可选「检测文档数量一致」校验。
+
 ## 工作流程
 
 1. **抓取漫画信息**：使用 `manhuagui.py` 从网站抓取漫画信息并生成 XML 文件
 2. **更新序号**：使用 `update_xml_numbers.py` 根据文件夹名更新 XML 中的序号
 3. **更新压缩包**：使用 `update_archives_with_xml.py` 将 XML 文件写入对应的压缩包
+4. **编辑压缩包内 XML**：使用 FastAPI Web UI（`app.py`）在浏览器中编辑已有压缩包的 ComicInfo.xml
 
 ## 注意事项
 

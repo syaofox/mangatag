@@ -1,0 +1,6 @@
+{# 扫描结果：通过 hx-swap-oob 同时更新扫描日志与 CSV 编辑区 #}
+<div id="scan-log" class="log" hx-swap-oob="true">{{ scan_log }}</div>
+<div id="csv-area" hx-swap-oob="true">
+  <label>CSV 编辑区</label>
+  <textarea id="csv_text" name="csv_text" rows="18">{{ csv_text }}</textarea>
+</div>

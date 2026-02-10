@@ -108,19 +108,17 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    """主页面：编辑压缩包内 XML。"""
+    """主页面：编辑压缩包内 XML。启动时不显示上次的日志，始终清空。"""
     session = request.session
     csv_text = session.get("last_csv", "")
-    scan_log = session.get("scan_log", "")
-    save_log = session.get("save_log", "")
     default_base_path = ALLOWED_BASE_PATHS[0] if ALLOWED_BASE_PATHS else ""
     return templates.TemplateResponse(
         "edit_xml.html",
         {
             "request": request,
             "csv_text": csv_text,
-            "scan_log": scan_log,
-            "save_log": save_log,
+            "scan_log": "",
+            "save_log": "",
             "csv_headers": CSV_HEADERS,
             "all_mark": ALL_MARK,
             "sort_choices": ["按数字大小顺序", "按字母顺序", "按Number列数字大小排序"],

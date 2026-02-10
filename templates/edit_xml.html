@@ -79,7 +79,9 @@
         hx-include="#edit_dir, #include_header, #sort_mode"
         hx-target="body"
         hx-swap="none"
-        hx-trigger="click">扫描目录并读取 ComicInfo.xml</button>
+        hx-trigger="click"
+        hx-on::click="document.getElementById('scan-log').innerHTML=''; document.getElementById('save-log').innerHTML='';"
+        >扫描目录并读取 ComicInfo.xml</button>
       <span class="htmx-indicator">扫描中…</span>
     </span>
   </div>
@@ -209,8 +211,10 @@
       var cb = document.getElementById('include_header');
       document.getElementById('export_include_header').value = cb && cb.checked ? 'true' : 'false';
     });
-    // 保存前把当前 CSV 编辑区内容及选项填入表单，确保提交的是当前内容
+    // 保存前先清空保存日志，再把当前 CSV 及选项填入表单
     document.getElementById('save-form').addEventListener('submit', function() {
+      var saveLogEl = document.getElementById('save-log');
+      if (saveLogEl) saveLogEl.innerHTML = '';
       var csvEl = document.getElementById('csv_text');
       document.getElementById('save_csv_hidden').value = csvEl ? csvEl.value : '';
       var cb = document.getElementById('include_header');

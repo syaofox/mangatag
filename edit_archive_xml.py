@@ -317,6 +317,14 @@ def prune_trailing_empty_rows(rows: list[list[str]]) -> list[list[str]]:
     return pruned
 
 
+def _fields_equal(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """比较两个 ComicInfo 字段字典是否一致（仅比较 XML_FIELD_TAGS）。"""
+    for tag in XML_FIELD_TAGS:
+        if (a.get(tag) or "").strip() != (b.get(tag) or "").strip():
+            return False
+    return True
+
+
 def save_archives(
     archives: list[str],
     csv_text: str,
@@ -324,8 +332,8 @@ def save_archives(
     check_count: bool,
 ) -> tuple[str, bool]:
     """
-    将 CSV 内容写回各压缩包。返回 (save_log, success)。
-    success=False 表示校验失败未执行写入。
+    将 CSV 内容写回各压缩包；仅对 ComicInfo 有改动的文档执行写入。
+    返回 (save_log, success)。
     """
     logs: list[str] = []
     if not csv_text:
@@ -380,7 +388,7 @@ def save_archives(
             continue
         if len(row) < 12:
             row = row + [""] * (12 - len(row))
-        fields = {
+        new_fields = {
             "Title": row[1],
             "Series": row[2],
             "Number": row[3],
@@ -393,7 +401,13 @@ def save_archives(
             "PublicationYear": row[10],
             "PublicationMonth": row[11],
         }
-        xml_bytes = build_xml_from_fields(fields)
+        old_xml = read_xml_from_archive(ap)
+        if old_xml is not None:
+            old_fields = parse_xml_fields(old_xml)
+            if _fields_equal(old_fields, new_fields):
+                logs.append(f"[{idx+1}/{total}] 跳过(无改动): {name}")
+                continue
+        xml_bytes = build_xml_from_fields(new_fields)
         ok = write_xml_to_archive(ap, xml_bytes)
         if ok:
             logs.append(f"[{idx+1}/{total}] 已保存: {name}")
@@ -412,6 +426,7 @@ def save_archives_streaming(
 ):
     """
     将 CSV 内容写回各压缩包，逐条 yield 日志行（用于流式输出）。
+    仅对 ComicInfo 有改动的文档执行写入。
     """
     if not csv_text:
         yield "无可保存的内容"
@@ -470,7 +485,7 @@ def save_archives_streaming(
             continue
         if len(row) < 12:
             row = row + [""] * (12 - len(row))
-        fields = {
+        new_fields = {
             "Title": row[1],
             "Series": row[2],
             "Number": row[3],
@@ -483,7 +498,13 @@ def save_archives_streaming(
             "PublicationYear": row[10],
             "PublicationMonth": row[11],
         }
-        xml_bytes = build_xml_from_fields(fields)
+        old_xml = read_xml_from_archive(ap)
+        if old_xml is not None:
+            old_fields = parse_xml_fields(old_xml)
+            if _fields_equal(old_fields, new_fields):
+                yield f"[{idx+1}/{total}] 跳过(无改动): {name}"
+                continue
+        xml_bytes = build_xml_from_fields(new_fields)
         ok = write_xml_to_archive(ap, xml_bytes)
         if ok:
             yield f"[{idx+1}/{total}] 已保存: {name}"

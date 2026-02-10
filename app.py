@@ -220,6 +220,8 @@ async def post_scan(
                 "request": request,
                 "scan_log": session["scan_log"],
                 "csv_text": "",
+                "scan_token": "",
+                "csv_headers": CSV_HEADERS,
             },
         )
     csv_text, scan_log, archives = scan_archives(allowed, include, sort_mode)
@@ -236,6 +238,7 @@ async def post_scan(
             "scan_log": scan_log,
             "csv_text": csv_text,
             "scan_token": scan_token,
+            "csv_headers": CSV_HEADERS,
         },
     )
 
@@ -374,7 +377,7 @@ async def post_import(
         session["last_csv"] = csv_text
     return templates.TemplateResponse(
         "partials/csv_area.html",
-        {"request": request, "csv_text": session.get("last_csv", "")},
+        {"request": request, "csv_text": session.get("last_csv", ""), "csv_headers": CSV_HEADERS},
     )
 
 
@@ -417,5 +420,5 @@ async def post_batch_edit(
     session["last_csv"] = out
     return templates.TemplateResponse(
         "partials/csv_area.html",
-        {"request": request, "csv_text": out},
+        {"request": request, "csv_text": out, "csv_headers": CSV_HEADERS},
     )

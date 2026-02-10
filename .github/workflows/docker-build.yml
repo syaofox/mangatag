@@ -1,13 +1,17 @@
-# 手动触发：构建 Docker 镜像，可选推送到 GitHub Container Registry
+# 手动触发：构建 Docker 镜像，默认推送到 GitHub Container Registry
 name: Build Docker image
 
 on:
   workflow_dispatch:
     inputs:
+      version:
+        description: '版本号（如 1.0.0 或 v1.0.0），留空则不打版本 tag'
+        required: false
+        type: string
       push:
         description: '推送到 GitHub Container Registry (ghcr.io)'
-        required: false
-        default: false
+        required: true
+        default: true
         type: boolean
 
 env:
@@ -42,6 +46,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ github.repository }}
           tags: |
             type=raw,value=latest,enable=${{ github.event.inputs.push == 'true' }}
+            type=raw,value=${{ github.event.inputs.version }},enable=${{ github.event.inputs.version != '' }}
             type=sha,prefix=
 
       - name: Build and push Docker image

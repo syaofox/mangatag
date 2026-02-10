@@ -89,14 +89,16 @@
           <button type="button" id="refresh-dirs"
             hx-get="/api/dirs"
             hx-include="#base_path"
-            hx-target="#dir_list"
+            hx-target="#dir_list_datalist"
             hx-swap="innerHTML"
             hx-trigger="click">刷新</button>
           <span class="htmx-indicator">加载中…</span>
-          <input type="text" id="dir_filter" placeholder="输入关键字过滤" style="max-width: 200px;" />
-          <select id="dir_list" name="dir_list" style="min-width: 200px; max-width: 400px;">
+          <input type="text" id="dir_list" name="dir_list" list="dir_list_datalist"
+                 placeholder="输入或选择子目录"
+                 style="min-width: 200px; max-width: 400px;" />
+          <datalist id="dir_list_datalist">
             <option value="">-- 选择 --</option>
-          </select>
+          </datalist>
         </div>
       </div>
       <div class="control-group">
@@ -333,75 +335,6 @@
       });
       modal.addEventListener('click', function(e) {
         if (e.target === modal) modal.classList.remove('open');
-      });
-    })();
-
-    // 漫画文件夹下拉：支持输入关键字进行本地模糊过滤
-    (function() {
-      var selectEl = document.getElementById('dir_list');
-      var filterEl = document.getElementById('dir_filter');
-      if (!selectEl || !filterEl) return;
-
-      var defaultOption = null;
-      var optionsData = [];
-
-      function captureOptions() {
-        var opts = Array.from(selectEl.options || []);
-        if (!opts.length) {
-          defaultOption = null;
-          optionsData = [];
-          return;
-        }
-        defaultOption = {
-          text: opts[0].text,
-          value: opts[0].value,
-          disabled: opts[0].disabled,
-          selected: opts[0].selected
-        };
-        optionsData = opts.slice(1).map(function(o) {
-          return { text: o.text || '', value: o.value || '' };
-        });
-      }
-
-      function applyFilter() {
-        var q = (filterEl.value || '').trim().toLowerCase();
-        var matched = !q ? optionsData : optionsData.filter(function(o) {
-          var txt = (o.text || '').toLowerCase();
-          var val = (o.value || '').toLowerCase();
-          return txt.indexOf(q) !== -1 || val.indexOf(q) !== -1;
-        });
-
-        selectEl.innerHTML = '';
-        if (defaultOption) {
-          var d = document.createElement('option');
-          d.text = defaultOption.text;
-          d.value = defaultOption.value;
-          if (defaultOption.disabled) d.disabled = true;
-          if (defaultOption.selected) d.selected = true;
-          selectEl.appendChild(d);
-        }
-
-        matched.forEach(function(o) {
-          var opt = document.createElement('option');
-          opt.text = o.text;
-          opt.value = o.value;
-          selectEl.appendChild(opt);
-        });
-      }
-
-      filterEl.addEventListener('input', function() {
-        applyFilter();
-      });
-
-      // 初始加载时记录一次
-      captureOptions();
-
-      // 目录列表通过 HTMX 刷新后，重新记录并按当前关键字过滤
-      document.body.addEventListener('htmx:afterSwap', function(ev) {
-        if (ev.detail && ev.detail.target && ev.detail.target.id === 'dir_list') {
-          captureOptions();
-          applyFilter();
-        }
       });
     })();
 

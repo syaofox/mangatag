@@ -487,12 +487,24 @@
       form.classList.add('saving');
       if (saveIndicator) saveIndicator.style.display = 'inline';
 
-      var formData = new FormData(form);
-      fetch('/save-stream', { method: 'POST', body: formData })
+      // 为避免 multipart 单字段 1MB 限制，这里以 JSON 形式提交到 /save-stream
+      var payload = {
+        csv_text: document.getElementById('save_csv_hidden').value || '',
+        include_header: document.getElementById('save_include_header').value || 'true',
+        check_count: document.getElementById('save_check_count').value || 'true',
+        scan_token: document.getElementById('scan_token').value || ''
+      };
+
+      fetch('/save-stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
         .then(function(res) {
           if (!res.body) return;
           var reader = res.body.getReader();
           var decoder = new TextDecoder();
+
           function read() {
             return reader.read().then(function(opt) {
               if (opt.done) return;
@@ -501,6 +513,7 @@
               return read();
             });
           }
+
           return read();
         })
         .catch(function(err) {

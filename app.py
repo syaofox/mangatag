@@ -372,15 +372,30 @@ def _build_content_disposition(filename: str) -> str:
 
 
 @app.post("/save-stream")
-async def post_save_stream(
-    request: Request,
-    csv_text: str = Form(""),
-    include_header: str = Form("true"),
-    check_count: str = Form("true"),
-    scan_token: str = Form(""),
-):
-    """流式保存：每处理完一个文档即返回一行日志，前端可逐条显示。"""
+async def post_save_stream(request: Request):
+    """
+    流式保存：每处理完一个文档即返回一行日志，前端可逐条显示。
+    为避免 multipart 的单字段 1MB 限制，这里使用 JSON 请求体而非表单。
+    预期 JSON 结构：
+      {
+        "csv_text": str,
+        "include_header": bool | str,
+        "check_count": bool | str,
+        "scan_token": str
+      }
+    """
     session = request.session
+
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+
+    scan_token = str(payload.get("scan_token") or "")
+    csv_text = str(payload.get("csv_text") or "")
+    include_raw = payload.get("include_header", True)
+    check_raw = payload.get("check_count", True)
+
     archives, _ = _get_archives_from_token(scan_token)
     if not archives:
         archives = session.get("archives") or []
@@ -392,9 +407,9 @@ async def post_save_stream(
         def err():
             yield "错误：扫描到的压缩包路径不在允许范围内。\n".encode("utf-8")
         return StreamingResponse(err(), media_type="text/plain; charset=utf-8")
-    # 若表单未带上 csv_text，此时视为无可保存内容，由 save_archives_streaming 负责给出提示
-    include = include_header.lower() in ("1", "true", "yes", "on")
-    check = check_count.lower() in ("1", "true", "yes", "on")
+
+    include = str(include_raw).lower() in ("1", "true", "yes", "on")
+    check = str(check_raw).lower() in ("1", "true", "yes", "on")
     return StreamingResponse(
         _save_stream_generator(archives, csv_text or "", include, check),
         media_type="text/plain; charset=utf-8",

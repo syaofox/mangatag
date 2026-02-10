@@ -376,7 +376,7 @@ async def post_import(
     if csv_text:
         session["last_csv"] = csv_text
     return templates.TemplateResponse(
-        "partials/csv_area.html",
+        "partials/csv_area_import.html",
         {"request": request, "csv_text": session.get("last_csv", ""), "csv_headers": CSV_HEADERS},
     )
 

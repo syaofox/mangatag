@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>MangaTag - 编辑压缩包内 XML</title>
   <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+  <script>htmx.config.allowScriptTags = true;</script>
   <style>
     * { box-sizing: border-box; }
     body { font-family: system-ui, sans-serif; background: #fff; color: #333; margin: 0; padding: 1rem 2rem; line-height: 1.5; }
@@ -293,6 +294,28 @@
         if (e.target === modal) modal.classList.remove('open');
       });
     })();
+
+    // 导入/扫描/批量编辑后，若 #csv-area 被替换，需手动渲染表格（allowScriptTags 可能仍不执行，此作为后备）
+    function maybeRenderCsvTable() {
+      var dataEl = document.getElementById('csv-initial-data');
+      var wrap = document.getElementById('csv-table-wrap');
+      if (!dataEl || !wrap) return;
+      var csv = '';
+      try {
+        csv = (dataEl.textContent && dataEl.textContent.trim()) ? JSON.parse(dataEl.textContent) : '';
+      } catch (e) { return; }
+      var ta = document.getElementById('csv_text');
+      if (ta) ta.value = csv;
+      if (window.csvEditor && window.csvEditor.render) window.csvEditor.render('csv-table-wrap', csv);
+    }
+    document.body.addEventListener('htmx:afterSwap', function(ev) {
+      if (ev.detail && ev.detail.target && (ev.detail.target.id === 'csv-area' || (ev.detail.target.querySelector && ev.detail.target.querySelector('#csv-initial-data')))) maybeRenderCsvTable();
+    });
+    document.body.addEventListener('htmx:afterSettle', function() {
+      if (document.getElementById('csv-initial-data') && !document.getElementById('csv-data-table')) {
+        setTimeout(maybeRenderCsvTable, 0);
+      }
+    });
 
     // 选择子目录后填充「章节压缩包目录」
     document.getElementById('dir_list').addEventListener('change', function() {

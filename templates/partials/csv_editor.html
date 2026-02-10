@@ -89,7 +89,9 @@
         var td = document.createElement('td');
         var inp = document.createElement('input');
         inp.type = 'text';
-        inp.value = row[c] != null ? row[c] : '';
+        var val = row[c] != null ? String(row[c]) : '';
+        inp.value = val;
+        inp.size = Math.min(50, Math.max(6, val.length + 2));
         inp.dataset.col = c;
         td.appendChild(inp);
         tr.appendChild(td);

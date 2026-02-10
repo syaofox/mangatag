@@ -16,6 +16,11 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.templating import Jinja2Templates
 
+try:
+    from pypinyin import lazy_pinyin
+except ImportError:
+    lazy_pinyin = None
+
 from edit_archive_xml import (
     ALL_MARK,
     CSV_HEADERS,
@@ -129,23 +134,12 @@ def _normalize_t_s(text: str) -> set[str]:
 
 
 def _match_dir_name(rel_path: str, query: str) -> bool:
-    """判断目录相对路径在繁简体不敏感的情况下是否匹配查询字符串。"""
-    query = (query or "").strip()
+    """判断目录相对路径在简体/繁体/拼音等综合形式下是否匹配查询字符串。"""
+    query = (query or "").strip().lower()
     if not query:
         return True
-    norm_queries = _normalize_t_s(query)
-    if not norm_queries:
-        return False
-    norm_candidate = _normalize_t_s(rel_path)
-    if not norm_candidate:
-        return False
-    for q in norm_queries:
-        if not q:
-            continue
-        for c in norm_candidate:
-            if q in c:
-                return True
-    return False
+    search_val = _build_search_value(rel_path) or ""
+    return query in search_val.lower()
 
 
 def _build_search_value(rel_path: str) -> str:
@@ -153,9 +147,27 @@ def _build_search_value(rel_path: str) -> str:
     构造用于 datalist 匹配的 value：
     - 包含原始目录名
     - 若安装了 opencc，则追加繁->简、简->繁等多种形式
-    这样浏览器原生匹配时，输入简体/繁体都能命中。
+    - 若安装了 pypinyin，则追加整串拼音与首字母缩写
+    这样浏览器原生匹配时，输入简体/繁体/拼音都能命中。
     """
     forms = _normalize_t_s(rel_path) or {rel_path}
+    if not isinstance(forms, set):
+        forms = set(forms)
+
+    # 拼音形式
+    if lazy_pinyin is not None:
+        try:
+            py_list = lazy_pinyin(rel_path, errors="ignore") or []
+            if py_list:
+                full_py = " ".join(py_list)
+                abbr_py = "".join(p[0] for p in py_list if p)
+                for s in (full_py, abbr_py):
+                    if not s:
+                        continue
+                    forms.add(s)
+                    forms.add(s.lower())
+        except Exception:
+            pass
     ordered: list[str] = []
     for s in forms:
         if not s:

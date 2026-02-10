@@ -1,6 +1,6 @@
 """
 编辑压缩包内 ComicInfo.xml 的业务逻辑。
-从 webui 抽离，供 FastAPI 与 Gradio 共用。
+供 FastAPI + HTMX 前端使用。
 """
 import csv
 import io

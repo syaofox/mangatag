@@ -1,0 +1,22 @@
+# 生产部署：mangatag 编辑压缩包内 XML
+# 使用方式：docker compose up -d
+# 环境变量可通过 .env 或下方 environment 配置
+
+services:
+  mangatag:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mangatag:latest
+    container_name: mangatag
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # 允许扫描的根目录，逗号分隔；生产环境可覆盖
+      - ALLOWED_BASE_PATHS=${ALLOWED_BASE_PATHS:-/data/books}
+      # Session 签名密钥；生产环境务必改为随机字符串
+      - SESSION_SECRET=${SESSION_SECRET:-your-random-secret-key-here}
+    # 若需访问宿主机上的书籍目录，取消注释并改为实际路径，例如：
+    volumes:
+      - /home/syaofox/Downloads/books:/data/books

@@ -1,0 +1,31 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[oc]
+.venv
+venv
+*.egg-info
+build/
+dist/
+wheels/
+
+# IDE / 开发
+.cursor
+*.md
+!README.md
+
+# 本地配置与输出（生产用环境变量或挂载）
+config/cookies.json
+outputs/
+
+# Docker
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# 其他
+*.log
+.python-version

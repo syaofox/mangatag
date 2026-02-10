@@ -359,6 +359,77 @@
       }
     });
 
+    // 漫画文件夹输入：简繁体不敏感搜索，动态更新 datalist
+    (function() {
+      var input = document.getElementById('dir_list');
+      var baseInput = document.getElementById('base_path');
+      var datalist = document.getElementById('dir_list_datalist');
+      if (!input || !baseInput || !datalist) return;
+
+      var lastController = null;
+
+      function escapeHtml(str) {
+        return (str || '').replace(/&/g, '&amp;')
+                          .replace(/</g, '&lt;')
+                          .replace(/>/g, '&gt;')
+                          .replace(/"/g, '&quot;');
+      }
+
+      function updateDatalist(entries) {
+        var html = '<option value=\"\">-- 选择 --</option>';
+        if (Array.isArray(entries)) {
+          entries.forEach(function(item) {
+            var rel, search;
+            if (typeof item === 'string') {
+              rel = item;
+              search = item;
+            } else {
+              rel = item && item.rel || '';
+              search = item && item.search || rel;
+            }
+            if (!rel) return;
+            var escRel = escapeHtml(rel);
+            var escSearch = escapeHtml(search);
+            // value 用于浏览器匹配（含多种繁简形式），data-rel 保留真实相对路径
+            html += '<option value=\"' + escSearch + '\" data-rel=\"' + escRel + '\" label=\"' + escRel + '\"></option>';
+          });
+        }
+        datalist.innerHTML = html;
+      }
+
+      function fetchDirs(q) {
+        var base = baseInput.value.trim();
+        var params = new URLSearchParams();
+        if (base) params.append('base_path', base);
+        if (q) params.append('q', q);
+        if (lastController) {
+          lastController.abort();
+        }
+        lastController = ('AbortController' in window) ? new AbortController() : null;
+        var opts = {};
+        if (lastController) {
+          opts.signal = lastController.signal;
+        }
+        fetch('/api/dirs-search?' + params.toString(), opts)
+          .then(function(res) { return res.ok ? res.json() : { entries: [] }; })
+          .then(function(data) {
+            updateDatalist((data && data.entries) || []);
+          })
+          .catch(function(err) {
+            if (err && err.name === 'AbortError') return;
+            // 出错时保持现有列表
+          });
+      }
+
+      input.addEventListener('input', function() {
+        fetchDirs(this.value.trim());
+      });
+
+      input.addEventListener('focus', function() {
+        fetchDirs(this.value.trim());
+      });
+    })();
+
     // 扫描：流式请求 /scan-stream，逐条追加到扫描日志；
     // 同时通过 /scan-json 拉取 CSV 文本并直接刷新表格与 scan_token。
     (function() {
@@ -445,11 +516,25 @@
     // 选择子目录后填充「章节压缩包目录」
     document.getElementById('dir_list').addEventListener('change', function() {
       var base = document.getElementById('base_path').value.trim();
-      var choice = this.value;
-      if (!choice) { document.getElementById('edit_dir').value = ''; return; }
-      if (!base) { document.getElementById('edit_dir').value = choice; return; }
+      var choiceVal = this.value;
+      var rel = choiceVal;
+      var dl = document.getElementById('dir_list_datalist');
+      if (dl && choiceVal) {
+        var opts = dl.options || [];
+        for (var i = 0; i < opts.length; i++) {
+          if (opts[i].value === choiceVal && opts[i].dataset && opts[i].dataset.rel) {
+            rel = opts[i].dataset.rel;
+            break;
+          }
+        }
+      }
+      // 将输入框中的值也同步成真实相对路径，避免后续困惑
+      this.value = rel;
+
+      if (!rel) { document.getElementById('edit_dir').value = ''; return; }
+      if (!base) { document.getElementById('edit_dir').value = rel; return; }
       var sep = base.endsWith('/') ? '' : '/';
-      document.getElementById('edit_dir').value = base + sep + choice;
+      document.getElementById('edit_dir').value = base + sep + rel;
     });
     // 导入前同步「包含表头」
     document.getElementById('import-form').addEventListener('submit', function() {

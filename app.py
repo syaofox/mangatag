@@ -32,6 +32,7 @@ from edit_archive_xml import (
     scan_archives,
     save_archives,
     save_archives_streaming,
+    opencc,
 )
 
 # 允许的根目录（逗号分隔）；未配置时不做限制，仅校验路径存在（适合本地使用）
@@ -88,6 +89,80 @@ def ensure_archives_allowed(archives: list[str]) -> bool:
 # key: token, value: {"archives": [...], "comic_dir": str, "ts": float}
 _SCAN_CACHE: dict[str, dict] = {}
 _CACHE_TTL_SEC = 3600 * 24  # 24 小时
+
+
+try:
+    if opencc is not None:
+        _OPENCC_T2S = opencc.OpenCC("t2s")
+        _OPENCC_S2T = opencc.OpenCC("s2t")
+    else:
+        _OPENCC_T2S = None
+        _OPENCC_S2T = None
+except Exception:
+    _OPENCC_T2S = None
+    _OPENCC_S2T = None
+
+
+def _normalize_t_s(text: str) -> set[str]:
+    """
+    将字符串规范为一组用于模糊匹配的形式：
+    - 保留原文及其小写
+    - 若安装了 opencc，则同时加入繁->简 与 简->繁 的转换结果及其小写
+    """
+    forms: set[str] = set()
+    if not text:
+        return forms
+    forms.add(text)
+    forms.add(text.lower())
+    # 若可用，则加入繁简转换结果
+    for converter in (_OPENCC_T2S, _OPENCC_S2T):
+        if converter is None:
+            continue
+        try:
+            converted = converter.convert(text)
+        except Exception:
+            continue
+        if converted:
+            forms.add(converted)
+            forms.add(converted.lower())
+    return forms
+
+
+def _match_dir_name(rel_path: str, query: str) -> bool:
+    """判断目录相对路径在繁简体不敏感的情况下是否匹配查询字符串。"""
+    query = (query or "").strip()
+    if not query:
+        return True
+    norm_queries = _normalize_t_s(query)
+    if not norm_queries:
+        return False
+    norm_candidate = _normalize_t_s(rel_path)
+    if not norm_candidate:
+        return False
+    for q in norm_queries:
+        if not q:
+            continue
+        for c in norm_candidate:
+            if q in c:
+                return True
+    return False
+
+
+def _build_search_value(rel_path: str) -> str:
+    """
+    构造用于 datalist 匹配的 value：
+    - 包含原始目录名
+    - 若安装了 opencc，则追加繁->简、简->繁等多种形式
+    这样浏览器原生匹配时，输入简体/繁体都能命中。
+    """
+    forms = _normalize_t_s(rel_path) or {rel_path}
+    ordered: list[str] = []
+    for s in forms:
+        if not s:
+            continue
+        if s not in ordered:
+            ordered.append(s)
+    return " ".join(ordered) if ordered else rel_path
 
 
 def _get_archives_from_token(token: str) -> tuple[list[str], str]:
@@ -178,6 +253,41 @@ async def api_browse(path: str = ""):
         "parent": parent,
         "entries": entries,
     })
+
+
+@app.get("/api/dirs-search")
+async def api_dirs_search(base_path: str = "", q: str = "", limit: int = 50):
+    """
+    根据基路径和查询字符串返回匹配的漫画子目录列表。
+    匹配时对简体/繁体不敏感：输入简体可匹配繁体目录名，反之亦然。
+    """
+    allowed_base = ensure_allowed_path(base_path) if base_path else None
+    if not allowed_base or not os.path.isdir(allowed_base):
+        return JSONResponse({"entries": []})
+    raw_entries = list_dirs_with_archives(allowed_base)
+    q = (q or "").strip()
+    try:
+        limit_int = int(limit)
+    except (TypeError, ValueError):
+        limit_int = 50
+    if limit_int <= 0:
+        limit_int = 50
+
+    def _wrap(rel: str) -> dict[str, str]:
+        return {"rel": rel, "search": _build_search_value(rel)}
+
+    # 无关键字时返回前 N 条（带复合搜索 value）
+    if not q:
+        entries = [_wrap(rel) for rel in raw_entries[:limit_int]]
+        return JSONResponse({"entries": entries})
+
+    matched: list[dict[str, str]] = []
+    for rel in raw_entries:
+        if _match_dir_name(rel, q):
+            matched.append(_wrap(rel))
+            if len(matched) >= limit_int:
+                break
+    return JSONResponse({"entries": matched})
 
 
 @app.get("/api/dirs", response_class=HTMLResponse)

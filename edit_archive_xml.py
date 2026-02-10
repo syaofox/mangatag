@@ -404,6 +404,95 @@ def save_archives(
     return ("\n".join(logs), True)
 
 
+def save_archives_streaming(
+    archives: list[str],
+    csv_text: str,
+    include_header: bool,
+    check_count: bool,
+):
+    """
+    将 CSV 内容写回各压缩包，逐条 yield 日志行（用于流式输出）。
+    """
+    if not csv_text:
+        yield "无可保存的内容"
+        return
+    if not archives:
+        yield "请先扫描目录以建立压缩包顺序"
+        return
+
+    reader = csv.reader(io.StringIO(csv_text))
+    rows = list(reader)
+    rows = strip_optional_header(rows, include_header)
+    rows = prune_trailing_empty_rows(rows)
+
+    row_map: dict[str, list[str]] = {}
+    duplicates: set[str] = set()
+    for r in rows:
+        if not r:
+            continue
+        fn = (r[0] if len(r) > 0 else "").strip()
+        if not fn:
+            continue
+        if fn in row_map:
+            duplicates.add(fn)
+        else:
+            row_map[fn] = r
+
+    if duplicates:
+        yield f"CSV 文件名重复：{len(duplicates)} 个，例如 {sorted(duplicates)[:3]} ...。已取消保存。"
+        return
+
+    archive_names = [os.path.basename(a) for a in archives]
+    set_archives = set(archive_names)
+    set_csv = set(row_map.keys())
+    missing = sorted(set_archives - set_csv)
+    extra = sorted(set_csv - set_archives)
+
+    if check_count:
+        if missing:
+            yield f"CSV 缺少以下文件名（共 {len(missing)}）：{', '.join(missing[:3])} ...。已取消保存。"
+            return
+        if extra:
+            yield f"CSV 包含未在扫描列表中的文件名（共 {len(extra)}）：{', '.join(extra[:3])} ...。已取消保存。"
+            return
+    else:
+        if missing:
+            yield f"提示：CSV 缺少 {len(missing)} 个文件，将跳过未提供行的文件。如：{', '.join(missing[:3])} ..."
+        if extra:
+            yield f"提示：CSV 包含 {len(extra)} 个额外行（非扫描文件），将忽略。如：{', '.join(extra[:3])} ..."
+
+    total = len(archives)
+    for idx, ap in enumerate(archives):
+        name = os.path.basename(ap)
+        row = row_map.get(name)
+        if row is None:
+            yield f"[{idx+1}/{total}] 跳过：CSV 未提供对应行 -> {name}"
+            continue
+        if len(row) < 12:
+            row = row + [""] * (12 - len(row))
+        fields = {
+            "Title": row[1],
+            "Series": row[2],
+            "Number": row[3],
+            "Summary": row[4],
+            "Writer": row[5],
+            "Genre": row[6],
+            "Web": row[7],
+            "PublishingStatusTachiyomi": row[8],
+            "SourceMihon": row[9],
+            "PublicationYear": row[10],
+            "PublicationMonth": row[11],
+        }
+        xml_bytes = build_xml_from_fields(fields)
+        ok = write_xml_to_archive(ap, xml_bytes)
+        if ok:
+            yield f"[{idx+1}/{total}] 已保存: {name}"
+        else:
+            yield f"[{idx+1}/{total}] 失败: {name}"
+
+    yield "保存完成"
+
+
 def export_csv(
     csv_text: str,
     include_header: bool,

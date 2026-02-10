@@ -6,8 +6,10 @@ import time
 import uuid
 from pathlib import Path
 
+from starlette.responses import StreamingResponse
+
 from fastapi import FastAPI, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, Response, StreamingResponse
+from fastapi.responses import HTMLResponse, Response
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.templating import Jinja2Templates
 
@@ -26,6 +28,7 @@ from edit_archive_xml import (
     list_dirs_with_archives,
     scan_archives,
     save_archives,
+    save_archives_streaming,
 )
 
 # 允许的根目录（逗号分隔）；未配置时不做限制，仅校验路径存在（适合本地使用）
@@ -223,6 +226,43 @@ async def post_save(
     return templates.TemplateResponse(
         "partials/save_log.html",
         {"request": request, "save_log": save_log},
+    )
+
+
+def _save_stream_generator(archives: list[str], csv_text: str, include: bool, check: bool):
+    """生成逐行日志，每行末尾带换行，便于前端按行追加。"""
+    for line in save_archives_streaming(archives, csv_text, include, check):
+        yield (line + "\n").encode("utf-8")
+
+
+@app.post("/save-stream")
+async def post_save_stream(
+    request: Request,
+    csv_text: str = Form(""),
+    include_header: str = Form("true"),
+    check_count: str = Form("true"),
+    scan_token: str = Form(""),
+):
+    """流式保存：每处理完一个文档即返回一行日志，前端可逐条显示。"""
+    session = request.session
+    archives, _ = _get_archives_from_token(scan_token)
+    if not archives:
+        archives = session.get("archives") or []
+    if not archives:
+        def err():
+            yield "请先扫描目录以建立压缩包顺序。\n".encode("utf-8")
+        return StreamingResponse(err(), media_type="text/plain; charset=utf-8")
+    if not ensure_archives_allowed(archives):
+        def err():
+            yield "错误：扫描到的压缩包路径不在允许范围内。\n".encode("utf-8")
+        return StreamingResponse(err(), media_type="text/plain; charset=utf-8")
+    if not (csv_text or "").strip():
+        csv_text = session.get("last_csv", "")
+    include = include_header.lower() in ("1", "true", "yes", "on")
+    check = check_count.lower() in ("1", "true", "yes", "on")
+    return StreamingResponse(
+        _save_stream_generator(archives, csv_text or "", include, check),
+        media_type="text/plain; charset=utf-8",
     )
 
 

@@ -30,7 +30,8 @@
     .htmx-request .htmx-indicator { display: inline; }
     .htmx-indicator { display: none; }
     /* 请求进行中禁用按钮，避免重复提交导致日志与操作错位 */
-    #scan-btn.htmx-request, #save-form.htmx-request #save-btn { pointer-events: none; opacity: 0.7; }
+    #scan-btn.htmx-request { pointer-events: none; opacity: 0.7; }
+    #save-form.saving #save-btn { pointer-events: none; opacity: 0.7; }
   </style>
 </head>
 <body>
@@ -176,14 +177,14 @@
     <label style="display: inline-flex; align-items: center;">
       <input type="checkbox" id="check_count" name="check_count" checked /> 检测文档数量一致（CSV 与扫描数量需一致）
     </label>
-    <form id="save-form" hx-post="/save" hx-target="body" hx-swap="none" style="display: inline;">
+    <form id="save-form" style="display: inline;">
       <input type="hidden" name="scan_token" id="scan_token" value="" />
       <input type="hidden" name="csv_text" id="save_csv_hidden" value="" />
       <input type="hidden" name="include_header" id="save_include_header" value="true" />
       <input type="hidden" name="check_count" id="save_check_count" value="true" />
       <button type="submit" id="save-btn" class="btn">保存修改到压缩包</button>
     </form>
-    <span class="htmx-indicator">保存中…</span>
+    <span id="save-indicator" class="htmx-indicator" style="display: none;">保存中…</span>
   </div>
 
   <div id="save-log-wrap" style="margin-top: 1rem;">
@@ -213,16 +214,50 @@
       var cb = document.getElementById('include_header');
       document.getElementById('export_include_header').value = cb && cb.checked ? 'true' : 'false';
     });
-    // 保存前先清空保存日志并显示「保存中…」，再把当前 CSV 及选项填入表单
-    document.getElementById('save-form').addEventListener('submit', function() {
+    // 保存：流式请求 /save-stream，逐条追加到保存日志
+    document.getElementById('save-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      var form = this;
       var saveLogEl = document.getElementById('save-log');
-      if (saveLogEl) { saveLogEl.innerHTML = ''; saveLogEl.innerHTML = '保存中…'; }
+      var saveBtn = document.getElementById('save-btn');
+      var saveIndicator = document.getElementById('save-indicator');
+      if (!saveLogEl || !saveBtn) return;
+
+      // 同步表单隐藏域
       var csvEl = document.getElementById('csv_text');
       document.getElementById('save_csv_hidden').value = csvEl ? csvEl.value : '';
       var cb = document.getElementById('include_header');
       document.getElementById('save_include_header').value = cb && cb.checked ? 'true' : 'false';
       var checkCb = document.getElementById('check_count');
       document.getElementById('save_check_count').value = checkCb && checkCb.checked ? 'true' : 'false';
+
+      saveLogEl.textContent = '';
+      form.classList.add('saving');
+      if (saveIndicator) saveIndicator.style.display = 'inline';
+
+      var formData = new FormData(form);
+      fetch('/save-stream', { method: 'POST', body: formData })
+        .then(function(res) {
+          if (!res.body) return;
+          var reader = res.body.getReader();
+          var decoder = new TextDecoder();
+          function read() {
+            return reader.read().then(function(opt) {
+              if (opt.done) return;
+              var text = decoder.decode(opt.value, { stream: true });
+              saveLogEl.textContent += text;
+              return read();
+            });
+          }
+          return read();
+        })
+        .catch(function(err) {
+          saveLogEl.textContent = (saveLogEl.textContent || '') + '\n请求失败: ' + err.message;
+        })
+        .finally(function() {
+          form.classList.remove('saving');
+          if (saveIndicator) saveIndicator.style.display = 'none';
+        });
     });
   </script>
 </body>

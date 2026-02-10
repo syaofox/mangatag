@@ -9,7 +9,7 @@ from pathlib import Path
 from starlette.responses import StreamingResponse
 
 from fastapi import FastAPI, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.templating import Jinja2Templates
 
@@ -128,6 +128,55 @@ async def index(request: Request):
             "default_base_path": default_base_path,
         },
     )
+
+
+def _browse_root() -> str:
+    """获取浏览器的根路径。"""
+    if ALLOWED_BASE_PATHS:
+        return os.path.abspath(os.path.normpath(ALLOWED_BASE_PATHS[0]))
+    return os.path.abspath(os.getcwd())
+
+
+@app.get("/api/browse")
+async def api_browse(path: str = ""):
+    """列出指定路径下的子目录，用于文件夹浏览。返回 JSON。"""
+    if path and path.strip():
+        current = ensure_allowed_path(path.strip())
+        if not current or not os.path.isdir(current):
+            return JSONResponse({"error": "路径无效或不在允许范围内"}, status_code=400)
+    else:
+        current = _browse_root()
+        if not os.path.isdir(current):
+            return JSONResponse({"error": "根目录不存在"}, status_code=400)
+
+    parent = os.path.dirname(current) if current != os.path.dirname(current) else None
+    if ALLOWED_BASE_PATHS:
+        base_abs = os.path.abspath(os.path.normpath(ALLOWED_BASE_PATHS[0]))
+        if parent and parent != current:
+            try:
+                if os.path.commonpath([parent, base_abs]) != base_abs and parent != base_abs:
+                    parent = None
+            except ValueError:
+                parent = None
+        if current == base_abs:
+            parent = None
+
+    entries: list[dict] = []
+    try:
+        for name in sorted(os.listdir(current)):
+            full = os.path.join(current, name)
+            if os.path.isdir(full):
+                if ALLOWED_BASE_PATHS and ensure_allowed_path(full) is None:
+                    continue
+                entries.append({"name": name, "path": full})
+    except OSError as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+    return JSONResponse({
+        "current": current,
+        "parent": parent,
+        "entries": entries,
+    })
 
 
 @app.get("/api/dirs", response_class=HTMLResponse)

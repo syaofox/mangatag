@@ -32,6 +32,20 @@
     /* 请求进行中禁用按钮，避免重复提交导致日志与操作错位 */
     #scan-btn.htmx-request { pointer-events: none; opacity: 0.7; }
     #save-form.saving #save-btn { pointer-events: none; opacity: 0.7; }
+    .path-with-browse { display: flex; gap: 0.5rem; align-items: center; max-width: 640px; }
+    .path-with-browse input { flex: 1; min-width: 0; }
+    .path-with-browse .btn { flex-shrink: 0; margin-top: 0; }
+    #browse-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 1000; align-items: center; justify-content: center; }
+    #browse-modal.open { display: flex; }
+    #browse-modal .dialog { background: #fff; border-radius: 8px; padding: 1.25rem; min-width: 360px; max-width: 90vw; max-height: 70vh; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+    #browse-modal .dialog h3 { margin: 0 0 0.75rem; font-size: 1rem; }
+    #browse-modal .current-path { font-size: 0.85rem; color: #555; word-break: break-all; margin-bottom: 0.75rem; padding: 0.5rem; background: #f5f5f5; border-radius: 4px; }
+    #browse-modal .folder-list { overflow-y: auto; max-height: 280px; border: 1px solid #ddd; border-radius: 4px; padding: 0.25rem; }
+    #browse-modal .folder-item { display: block; width: 100%; padding: 0.5rem 0.75rem; text-align: left; border: none; background: none; cursor: pointer; border-radius: 4px; font-size: 0.95rem; color: #333; }
+    #browse-modal .folder-item:hover { background: #e8f0fe; }
+    #browse-modal .folder-item::before { content: "📁 "; }
+    #browse-modal .folder-item.parent::before { content: "⬆ "; }
+    #browse-modal .actions { margin-top: 1rem; display: flex; gap: 0.5rem; justify-content: flex-end; }
   </style>
 </head>
 <body>
@@ -41,7 +55,10 @@
   <form id="dir-form" class="row">
     <div class="col">
       <label for="base_path">基路径</label>
-      <input type="text" id="base_path" name="base_path" value="{{ default_base_path }}" placeholder="如 /home/user/outputs" />
+      <div class="path-with-browse">
+        <input type="text" id="base_path" name="base_path" value="{{ default_base_path }}" placeholder="如 /home/user/outputs" />
+        <button type="button" id="browse-btn" class="btn" title="浏览文件夹">浏览</button>
+      </div>
     </div>
     <div class="col">
       <button type="button" id="refresh-dirs"
@@ -192,7 +209,78 @@
     <div id="save-log" class="log">{{ save_log }}</div>
   </div>
 
+  <div id="browse-modal" role="dialog" aria-label="浏览文件夹">
+    <div class="dialog">
+      <h3>选择基路径目录</h3>
+      <div id="browse-current" class="current-path">/</div>
+      <div id="browse-list" class="folder-list"></div>
+      <div class="actions">
+        <button type="button" id="browse-cancel" class="btn" style="background: #666;">取消</button>
+        <button type="button" id="browse-select" class="btn">选择此目录</button>
+      </div>
+    </div>
+  </div>
+
   <script>
+    // 浏览文件夹
+    (function() {
+      var modal = document.getElementById('browse-modal');
+      var currentEl = document.getElementById('browse-current');
+      var listEl = document.getElementById('browse-list');
+      var browseBtn = document.getElementById('browse-btn');
+      var cancelBtn = document.getElementById('browse-cancel');
+      var selectBtn = document.getElementById('browse-select');
+      var basePathInput = document.getElementById('base_path');
+      var currentPath = '';
+
+      function loadBrowse(path) {
+        var url = '/api/browse' + (path ? '?path=' + encodeURIComponent(path) : '');
+        fetch(url).then(function(r) {
+          if (!r.ok) return r.json().then(function(d) { throw new Error(d.error || '加载失败'); });
+          return r.json();
+        }).then(function(data) {
+          currentPath = data.current;
+          currentEl.textContent = data.current || '/';
+          listEl.innerHTML = '';
+          if (data.parent) {
+            var parentBtn = document.createElement('button');
+            parentBtn.type = 'button';
+            parentBtn.className = 'folder-item parent';
+            parentBtn.textContent = '上一级';
+            parentBtn.dataset.path = data.parent;
+            parentBtn.addEventListener('click', function() { loadBrowse(data.parent); });
+            listEl.appendChild(parentBtn);
+          }
+          data.entries.forEach(function(e) {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'folder-item';
+            btn.textContent = e.name;
+            btn.dataset.path = e.path;
+            btn.addEventListener('click', function() { loadBrowse(e.path); });
+            listEl.appendChild(btn);
+          });
+        }).catch(function(err) {
+          currentEl.textContent = '错误: ' + err.message;
+          listEl.innerHTML = '';
+        });
+      }
+
+      browseBtn.addEventListener('click', function() {
+        var start = basePathInput.value.trim();
+        modal.classList.add('open');
+        loadBrowse(start || undefined);
+      });
+      cancelBtn.addEventListener('click', function() { modal.classList.remove('open'); });
+      selectBtn.addEventListener('click', function() {
+        if (currentPath) basePathInput.value = currentPath;
+        modal.classList.remove('open');
+      });
+      modal.addEventListener('click', function(e) {
+        if (e.target === modal) modal.classList.remove('open');
+      });
+    })();
+
     // 选择子目录后填充「章节压缩包目录」
     document.getElementById('dir_list').addEventListener('change', function() {
       var base = document.getElementById('base_path').value.trim();

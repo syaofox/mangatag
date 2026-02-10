@@ -225,6 +225,7 @@
           <form id="export-form" method="POST" action="/export" target="_blank" style="display: inline-flex; align-items: center;">
             <input type="hidden" name="csv_text" id="export_csv_hidden" value="" />
             <input type="hidden" name="include_header" id="export_include_header" value="true" />
+            <input type="hidden" name="comic_dir" id="export_comic_dir" value="" />
             <button type="submit" class="btn" id="export-btn">下载 CSV</button>
           </form>
           <form id="import-form" hx-post="/import" hx-target="#csv-area" hx-swap="outerHTML" hx-encoding="multipart/form-data" class="form-row">
@@ -454,13 +455,15 @@
       var cb = document.getElementById('include_header');
       document.getElementById('import_include_header').value = cb && cb.checked ? 'true' : 'false';
     });
-    // 导出前把当前 CSV 编辑区内容填入表单，避免下载为空
+    // 导出前把当前 CSV 编辑区内容和章节目录填入表单，避免下载为空，并用于生成文件名
     document.getElementById('export-form').addEventListener('submit', function() {
       if (window.csvEditor && window.csvEditor.sync) window.csvEditor.sync();
       var csvEl = document.getElementById('csv_text');
       document.getElementById('export_csv_hidden').value = csvEl ? csvEl.value : '';
       var cb = document.getElementById('include_header');
       document.getElementById('export_include_header').value = cb && cb.checked ? 'true' : 'false';
+      var editDirEl = document.getElementById('edit_dir');
+      document.getElementById('export_comic_dir').value = editDirEl ? (editDirEl.value || '') : '';
     });
     // 保存：流式请求 /save-stream，逐条追加到保存日志
     document.getElementById('save-form').addEventListener('submit', function(e) {

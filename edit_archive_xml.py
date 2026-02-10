@@ -535,9 +535,9 @@ def export_csv(
     comic_dir: str,
     archives: list[str],
 ) -> tuple[bytes, str]:
-    """若 csv_text 为空则从 archives 重新生成。返回 (csv_bytes, suggested_filename)。"""
-    import datetime
-    import uuid
+    """若 csv_text 为空则从 archives 重新生成。
+    返回 (csv_bytes, suggested_filename)，其中文件名优先使用当前章节压缩包目录名 + .csv。
+    """
 
     text = csv_text or ""
     if not text.strip() and archives:
@@ -585,10 +585,8 @@ def export_csv(
         data = (text or "").encode("utf-8")
 
     dir_name = os.path.basename(comic_dir) if comic_dir else "comicinfo"
-    safe_name = "".join(c for c in dir_name if c.isalnum() or c in "._- ").strip() or "comicinfo"
-    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    uid = uuid.uuid4().hex[:8]
-    filename = f"{safe_name}_{ts}_{uid}.csv"
+    # 直接使用当前章节压缩包目录名作为下载文件名主体，由上层 _build_content_disposition 负责处理非 ASCII 情况
+    filename = f"{dir_name or 'comicinfo'}.csv"
     return (data, filename)
 
 

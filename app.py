@@ -424,13 +424,15 @@ async def post_export(
     request: Request,
     csv_text: str = Form(""),
     include_header: str = Form("true"),
+    comic_dir: str = Form(""),
 ):
     """用当前提交的 csv_text 生成 CSV 下载，避免 session 为空导致内容为空。"""
     session = request.session
-    comic_dir = session.get("comic_dir", "")
+    # 优先使用表单传入的章节目录（当前页面的章节压缩包目录），否则回退到 session 中的 comic_dir
+    used_dir = (comic_dir or "").strip() or session.get("comic_dir", "")
     archives = session.get("archives") or []
     include = include_header.lower() in ("1", "true", "yes", "on")
-    data, filename = export_csv(csv_text or "", include, comic_dir, archives)
+    data, filename = export_csv(csv_text or "", include, used_dir, archives)
     return Response(
         content=data,
         media_type="text/csv; charset=utf-8",

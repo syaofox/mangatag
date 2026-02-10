@@ -172,15 +172,14 @@
     <label style="display: inline-flex; align-items: center;">
       <input type="checkbox" id="check_count" name="check_count" checked /> 检测文档数量一致（CSV 与扫描数量需一致）
     </label>
-    <span>
-      <button type="button" id="save-btn"
-        hx-post="/save"
-        hx-include="#csv_text, #include_header, #check_count"
-        hx-target="body"
-        hx-swap="none"
-        hx-trigger="click">保存修改到压缩包</button>
-      <span class="htmx-indicator">保存中…</span>
-    </span>
+    <form id="save-form" hx-post="/save" hx-target="body" hx-swap="none" style="display: inline;">
+      <input type="hidden" name="scan_token" id="scan_token" value="" />
+      <input type="hidden" name="csv_text" id="save_csv_hidden" value="" />
+      <input type="hidden" name="include_header" id="save_include_header" value="true" />
+      <input type="hidden" name="check_count" id="save_check_count" value="true" />
+      <button type="submit" id="save-btn" class="btn">保存修改到压缩包</button>
+    </form>
+    <span class="htmx-indicator">保存中…</span>
   </div>
 
   <div id="save-log-wrap" style="margin-top: 1rem;">
@@ -209,6 +208,15 @@
       document.getElementById('export_csv_hidden').value = csvEl ? csvEl.value : '';
       var cb = document.getElementById('include_header');
       document.getElementById('export_include_header').value = cb && cb.checked ? 'true' : 'false';
+    });
+    // 保存前把当前 CSV 编辑区内容及选项填入表单，确保提交的是当前内容
+    document.getElementById('save-form').addEventListener('submit', function() {
+      var csvEl = document.getElementById('csv_text');
+      document.getElementById('save_csv_hidden').value = csvEl ? csvEl.value : '';
+      var cb = document.getElementById('include_header');
+      document.getElementById('save_include_header').value = cb && cb.checked ? 'true' : 'false';
+      var checkCb = document.getElementById('check_count');
+      document.getElementById('save_check_count').value = checkCb && checkCb.checked ? 'true' : 'false';
     });
   </script>
 </body>

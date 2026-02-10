@@ -2,6 +2,8 @@
 FastAPI + HTMX 前端：编辑压缩包内 ComicInfo.xml。
 """
 import os
+import time
+import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, Form, Request, UploadFile
@@ -74,6 +76,25 @@ def ensure_archives_allowed(archives: list[str]) -> bool:
         if ensure_allowed_path(ap) is None:
             return False
     return True
+
+
+# 扫描结果服务端缓存，避免 archives 列表过大导致 session cookie 超限、保存时 session 为空
+# key: token, value: {"archives": [...], "comic_dir": str, "ts": float}
+_SCAN_CACHE: dict[str, dict] = {}
+_CACHE_TTL_SEC = 3600 * 24  # 24 小时
+
+
+def _get_archives_from_token(token: str) -> tuple[list[str], str]:
+    """从 token 取 archives；返回 (archives, comic_dir)。无效则 ([], "")。"""
+    if not token or not token.strip():
+        return [], ""
+    entry = _SCAN_CACHE.get(token.strip())
+    if not entry:
+        return [], ""
+    if time.time() - entry.get("ts", 0) > _CACHE_TTL_SEC:
+        del _SCAN_CACHE[token.strip()]
+        return [], ""
+    return entry.get("archives") or [], entry.get("comic_dir") or ""
 
 
 app = FastAPI(title="MangaTag - 编辑压缩包内 XML")
@@ -154,14 +175,17 @@ async def post_scan(
     csv_text, scan_log, archives = scan_archives(allowed, include, sort_mode)
     session["scan_log"] = scan_log
     session["last_csv"] = csv_text
-    session["archives"] = archives
     session["comic_dir"] = allowed
+    # 用服务端缓存存 archives，避免 session cookie 过大导致保存时 session 为空
+    scan_token = uuid.uuid4().hex
+    _SCAN_CACHE[scan_token] = {"archives": archives, "comic_dir": allowed, "ts": time.time()}
     return templates.TemplateResponse(
         "partials/scan_result.html",
         {
             "request": request,
             "scan_log": scan_log,
             "csv_text": csv_text,
+            "scan_token": scan_token,
         },
     )
 
@@ -172,10 +196,13 @@ async def post_save(
     csv_text: str = Form(""),
     include_header: str = Form("true"),
     check_count: str = Form("true"),
+    scan_token: str = Form(""),
 ):
-    """将 CSV 写回压缩包，返回保存日志片段。"""
+    """将 CSV 写回压缩包，返回保存日志片段。优先从 scan_token 取 archives，避免 session cookie 过大导致为空。"""
     session = request.session
-    archives = session.get("archives") or []
+    archives, _ = _get_archives_from_token(scan_token)
+    if not archives:
+        archives = session.get("archives") or []
     if not archives:
         session["save_log"] = "请先扫描目录以建立压缩包顺序。"
         return templates.TemplateResponse(
@@ -188,9 +215,12 @@ async def post_save(
             "partials/save_log.html",
             {"request": request, "save_log": session["save_log"]},
         )
+    # 若表单未带上 csv_text（如 HTMX 未包含到），用 session 中的 last_csv 兜底
+    if not (csv_text or "").strip():
+        csv_text = session.get("last_csv", "")
     include = include_header.lower() in ("1", "true", "yes", "on")
     check = check_count.lower() in ("1", "true", "yes", "on")
-    save_log, _ = save_archives(archives, csv_text, include, check)
+    save_log, _ = save_archives(archives, csv_text or "", include, check)
     session["save_log"] = save_log
     return templates.TemplateResponse(
         "partials/save_log.html",

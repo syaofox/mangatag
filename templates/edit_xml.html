@@ -19,7 +19,8 @@
     .csv-table { border-collapse: collapse; font-size: 0.85rem; width: max-content; min-width: 100%; table-layout: auto; }
     .csv-table th, .csv-table td { border: 1px solid #ddd; padding: 0.25rem 0.4rem; text-align: left; white-space: nowrap; }
     .csv-table th { background: #f0f0f0; font-weight: 600; position: sticky; top: 0; }
-    .csv-table td input { width: auto; min-width: 4em; border: none; padding: 0.2rem; background: transparent; font: inherit; box-sizing: border-box; }
+    /* 让单元格内文本输入占满单元格宽度，避免视觉截断；超出时通过容器横向滚动查看 */
+    .csv-table td input { width: 100%; min-width: 8em; border: none; padding: 0.2rem; background: transparent; font: inherit; box-sizing: border-box; }
     .csv-table td input:focus { outline: 1px solid #0066cc; background: #fff; }
     button, .btn { display: inline-block; padding: 0.5rem 1rem; background: #0066cc; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; margin-right: 0.5rem; margin-top: 0.5rem; }
     button:hover, .btn:hover { background: #0052a3; }

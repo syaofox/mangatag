@@ -99,7 +99,7 @@
         inp.type = 'text';
         var val = row[c] != null ? String(row[c]) : '';
         inp.value = val;
-        inp.size = Math.min(50, Math.max(6, val.length + 2));
+        // 使用 CSS 控制定宽/自适应宽度，避免 size 导致视觉截断
         inp.dataset.col = c;
         td.appendChild(inp);
         tr.appendChild(td);

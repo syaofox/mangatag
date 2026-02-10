@@ -4,6 +4,7 @@ FastAPI + HTMX 前端：编辑压缩包内 ComicInfo.xml。
 import os
 import time
 import uuid
+import urllib.parse
 from pathlib import Path
 
 from starlette.responses import StreamingResponse
@@ -287,6 +288,24 @@ def _save_stream_generator(archives: list[str], csv_text: str, include: bool, ch
         yield (line + "\n").encode("utf-8")
 
 
+def _build_content_disposition(filename: str) -> str:
+    """
+    构造 Content-Disposition，兼容包含中文等非 ASCII 文件名。
+    - 若文件名可用 latin-1 编码，则直接使用 filename=
+    - 否则使用 RFC 5987 格式的 filename*，并提供 ASCII 回退名
+    """
+    if not filename:
+        return 'attachment; filename="export.csv"'
+    try:
+        filename.encode("latin-1")
+        return f'attachment; filename="{filename}"'
+    except UnicodeEncodeError:
+        quoted = urllib.parse.quote(filename, encoding="utf-8", safe="")
+        # 回退名必须是 ASCII，避免再次触发编码错误
+        fallback = "export.csv"
+        return f"attachment; filename={fallback}; filename*=UTF-8''{quoted}"
+
+
 @app.post("/save-stream")
 async def post_save_stream(
     request: Request,
@@ -331,7 +350,7 @@ async def get_export(request: Request):
         content=data,
         media_type="text/csv; charset=utf-8",
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Disposition": _build_content_disposition(filename),
         },
     )
 
@@ -352,7 +371,7 @@ async def post_export(
         content=data,
         media_type="text/csv; charset=utf-8",
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Disposition": _build_content_disposition(filename),
         },
     )
 

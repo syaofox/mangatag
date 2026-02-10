@@ -259,6 +259,21 @@ def scan_archives(
         archives = sort_archives(archives, sort_mode)
 
     logs.append(f"发现压缩包：{len(archives)} 个，排序：{sort_mode}")
+    if not archives:
+        # 额外输出当前目录下前若干条内容，便于诊断“看起来有文件但程序认为没有”的情况
+        try:
+            entries = sorted(os.listdir(comic_dir))
+            preview = entries[:50]
+            logs.append("调试：未发现任何 .zip/.cbz 文件。当前目录前若干项：")
+            for name in preview:
+                full = os.path.join(comic_dir, name)
+                typ = "dir" if os.path.isdir(full) else "file"
+                ext = os.path.splitext(name)[1]
+                logs.append(f"  [{typ}] {name} (ext={ext})")
+            if len(entries) > len(preview):
+                logs.append(f"  ... 共 {len(entries)} 项，仅显示前 {len(preview)} 项。")
+        except Exception as e:  # noqa: BLE001
+            logs.append(f"调试：列举目录内容失败：{e!r}")
 
     output = io.StringIO()
     writer = csv.writer(output)

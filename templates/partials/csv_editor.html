@@ -1,13 +1,21 @@
 {# CSV 轻量表格编辑器：隐藏 textarea 存原始 CSV，可见表格供编辑 #}
 <label>CSV 编辑区</label>
 <textarea id="csv_text" name="csv_text" style="display:none"></textarea>
-<script type="application/json" id="csv-initial-data">{{ csv_text | tojson }}</script>
+{# 注意：为避免 CSV 内容中的 "</script" 终止脚本，这里将 JSON 中的 "</" 转义为 "<\/" #}
+<script type="application/json" id="csv-initial-data">{{ csv_text | tojson | replace('</', '<\\/') }}</script>
 <div id="csv-table-wrap" class="csv-table-container"></div>
 <script>
 (function() {
   var CSV_HEADERS = {{ csv_headers | tojson }};
   var initialDataEl = document.getElementById('csv-initial-data');
-  var initialCsv = (initialDataEl && initialDataEl.textContent) ? JSON.parse(initialDataEl.textContent) : '';
+  var initialCsv = '';
+  if (initialDataEl && initialDataEl.textContent) {
+    try {
+      initialCsv = JSON.parse(initialDataEl.textContent);
+    } catch (e) {
+      initialCsv = '';
+    }
+  }
   document.getElementById('csv_text').value = initialCsv;
   function parseCSV(text) {
     if (!text || !text.trim()) return { headers: CSV_HEADERS.slice(), rows: [] };

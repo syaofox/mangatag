@@ -122,14 +122,7 @@
           {% endfor %}
         </select>
       </div>
-      <button type="button" id="scan-btn" class="btn btn-primary"
-        hx-post="/scan"
-        hx-include="#edit_dir, #include_header, #sort_mode"
-        hx-target="body"
-        hx-swap="none"
-        hx-trigger="click"
-        hx-on::click="var sl=document.getElementById('scan-log'); var sv=document.getElementById('save-log'); if(sl){sl.innerHTML='';} if(sv){sv.innerHTML='';} if(sl){sl.innerHTML='扫描中…';}"
-        >扫描目录并读取 ComicInfo.xml</button>
+      <button type="button" id="scan-btn" class="btn btn-primary">扫描目录并读取 ComicInfo.xml</button>
       <span class="htmx-indicator">扫描中…</span>
     </div>
   </section>
@@ -344,9 +337,13 @@
       var wrap = document.getElementById('csv-table-wrap');
       if (!dataEl || !wrap) return;
       var csv = '';
-      try {
-        csv = (dataEl.textContent && dataEl.textContent.trim()) ? JSON.parse(dataEl.textContent) : '';
-      } catch (e) { return; }
+      if (dataEl.textContent && dataEl.textContent.trim()) {
+        try {
+          csv = JSON.parse(dataEl.textContent);
+        } catch (e) {
+          csv = '';
+        }
+      }
       var ta = document.getElementById('csv_text');
       if (ta) ta.value = csv;
       if (window.csvEditor && window.csvEditor.render) window.csvEditor.render('csv-table-wrap', csv);
@@ -359,6 +356,89 @@
         setTimeout(maybeRenderCsvTable, 0);
       }
     });
+
+    // 扫描：流式请求 /scan-stream，逐条追加到扫描日志；
+    // 同时通过 /scan-json 拉取 CSV 文本并直接刷新表格与 scan_token。
+    (function() {
+      var scanBtn = document.getElementById('scan-btn');
+      if (!scanBtn) return;
+      scanBtn.addEventListener('click', function() {
+        var scanLogEl = document.getElementById('scan-log');
+        var saveLogEl = document.getElementById('save-log');
+        if (scanLogEl) scanLogEl.textContent = '扫描中…';
+        if (saveLogEl) saveLogEl.textContent = '';
+
+        var comicDir = (document.getElementById('edit_dir') || {}).value || '';
+        var includeHeaderCb = document.getElementById('include_header');
+        var sortModeEl = document.getElementById('sort_mode');
+        var includeHeaderVal = includeHeaderCb && includeHeaderCb.checked ? 'true' : 'false';
+        var sortModeVal = sortModeEl ? sortModeEl.value : '按数字大小顺序';
+
+        var formData1 = new FormData();
+        formData1.append('comic_dir', comicDir);
+        formData1.append('include_header', includeHeaderVal);
+        formData1.append('sort_mode', sortModeVal);
+
+        // 1）流式日志
+        fetch('/scan-stream', { method: 'POST', body: formData1 })
+          .then(function(res) {
+            if (!res.body) return;
+            var reader = res.body.getReader();
+            var decoder = new TextDecoder();
+            function read() {
+              return reader.read().then(function(opt) {
+                if (opt.done) return;
+                var text = decoder.decode(opt.value, { stream: true });
+                if (scanLogEl) {
+                  // 若是第一次块并且仍然是「扫描中…」，先清空
+                  if (scanLogEl.textContent === '扫描中…') {
+                    scanLogEl.textContent = '';
+                  }
+                  scanLogEl.textContent += text;
+                }
+                return read();
+              });
+            }
+            return read();
+          })
+          .catch(function(err) {
+            if (scanLogEl) {
+              scanLogEl.textContent = (scanLogEl.textContent || '') + '\n请求失败: ' + err.message;
+            }
+          });
+
+        // 2）JSON 结果：直接刷新 CSV 表格与 scan_token
+        var formData2 = new FormData();
+        formData2.append('comic_dir', comicDir);
+        formData2.append('include_header', includeHeaderVal);
+        formData2.append('sort_mode', sortModeVal);
+        fetch('/scan-json', { method: 'POST', body: formData2 })
+          .then(function(res) { return res.json(); })
+          .then(function(data) {
+            if (!data || !data.ok) {
+              if (scanLogEl && data && data.error) {
+                scanLogEl.textContent = data.error;
+              }
+              return;
+            }
+            var csv = data.csv_text || '';
+            var ta = document.getElementById('csv_text');
+            if (ta) ta.value = csv;
+            var tokenInput = document.getElementById('scan_token');
+            if (tokenInput && data.scan_token) {
+              tokenInput.value = data.scan_token;
+            }
+            if (window.csvEditor && window.csvEditor.render) {
+              window.csvEditor.render('csv-table-wrap', csv);
+            }
+          })
+          .catch(function(err) {
+            if (scanLogEl) {
+              scanLogEl.textContent = (scanLogEl.textContent || '') + '\n获取 CSV 结果失败: ' + err.message;
+            }
+          });
+      });
+    })();
 
     // 选择子目录后填充「章节压缩包目录」
     document.getElementById('dir_list').addEventListener('change', function() {

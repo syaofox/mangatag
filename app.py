@@ -227,7 +227,6 @@ async def post_scan(
         )
     csv_text, scan_log, archives = scan_archives(allowed, include, sort_mode)
     session["scan_log"] = scan_log
-    session["last_csv"] = csv_text
     session["comic_dir"] = allowed
     # 用服务端缓存存 archives，避免 session cookie 过大导致保存时 session 为空
     scan_token = uuid.uuid4().hex
@@ -241,6 +240,76 @@ async def post_scan(
             "scan_token": scan_token,
             "csv_headers": CSV_HEADERS,
         },
+    )
+
+
+@app.post("/scan-stream")
+async def post_scan_stream(
+    request: Request,
+    comic_dir: str = Form(""),
+    include_header: str = Form("true"),
+    sort_mode: str = Form("按数字大小顺序"),
+):
+    """仅返回扫描日志的流式输出（逐行文本），便于观察长时间扫描进度。"""
+    session = request.session
+    include = include_header.lower() in ("1", "true", "yes", "on")
+    allowed, err = check_scan_dir(comic_dir)
+    if not allowed:
+        session["scan_log"] = "错误：" + (err or "目录不存在或不在允许范围内。")
+        session["last_csv"] = ""
+        session["archives"] = []
+        session["comic_dir"] = ""
+
+        def err_gen():
+            msg = session["scan_log"]
+            yield (msg + "\n").encode("utf-8")
+
+        return StreamingResponse(err_gen(), media_type="text/plain; charset=utf-8")
+
+    def gen():
+        # 这里会完整执行一次扫描，然后将扫描日志按行输出。
+        # 注意：/scan 本身也会执行一次扫描以生成 CSV 与缓存，因此同一次操作会扫描两次。
+        # 若后续需要进一步优化，可考虑重构为共享一次扫描结果。
+        _, scan_log, _ = scan_archives(allowed, include, sort_mode)
+        for line in (scan_log or "").splitlines():
+            yield (line + "\n").encode("utf-8")
+
+    return StreamingResponse(gen(), media_type="text/plain; charset=utf-8")
+
+
+@app.post("/scan-json")
+async def post_scan_json(
+    request: Request,
+    comic_dir: str = Form(""),
+    include_header: str = Form("true"),
+    sort_mode: str = Form("按数字大小顺序"),
+):
+    """
+    扫描目录，返回 JSON 结果，供前端直接刷新 CSV 表格：
+    { ok, error?, csv_text?, scan_log?, scan_token? }。
+    """
+    session = request.session
+    include = include_header.lower() in ("1", "true", "yes", "on")
+    allowed, err = check_scan_dir(comic_dir)
+    if not allowed:
+        msg = "错误：" + (err or "目录不存在或不在允许范围内。")
+        session["scan_log"] = msg
+        session["comic_dir"] = ""
+        return JSONResponse({"ok": False, "error": msg}, status_code=400)
+
+    csv_text, scan_log, archives = scan_archives(allowed, include, sort_mode)
+    session["scan_log"] = scan_log
+    session["comic_dir"] = allowed
+    # 缓存 archives，避免存入 session
+    scan_token = uuid.uuid4().hex
+    _SCAN_CACHE[scan_token] = {"archives": archives, "comic_dir": allowed, "ts": time.time()}
+    return JSONResponse(
+        {
+            "ok": True,
+            "csv_text": csv_text,
+            "scan_log": scan_log,
+            "scan_token": scan_token,
+        }
     )
 
 

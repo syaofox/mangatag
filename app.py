@@ -451,8 +451,7 @@ async def post_import(
     import_file: UploadFile | None = None,
     include_header: str = Form("true"),
 ):
-    """上传 CSV 文件，解析后更新 session.last_csv 并返回 CSV 编辑区片段。"""
-    session = request.session
+    """上传 CSV 文件，解析后直接返回 CSV 编辑区片段（不再写入 session，避免 Cookie 过大）。"""
     include = include_header.lower() in ("1", "true", "yes", "on")
     csv_text = ""
     if import_file and import_file.filename and import_file.filename.lower().endswith((".csv", ".txt")):
@@ -461,11 +460,9 @@ async def post_import(
             csv_text = import_csv_content(body, include)
         except Exception:
             csv_text = ""
-    if csv_text:
-        session["last_csv"] = csv_text
     return templates.TemplateResponse(
         "partials/csv_area_import.html",
-        {"request": request, "csv_text": session.get("last_csv", ""), "csv_headers": CSV_HEADERS},
+        {"request": request, "csv_text": csv_text or "", "csv_headers": CSV_HEADERS},
     )
 
 

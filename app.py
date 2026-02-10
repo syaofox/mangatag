@@ -113,14 +113,12 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """主页面：编辑压缩包内 XML。启动时不显示上次的日志，始终清空。"""
-    session = request.session
-    csv_text = session.get("last_csv", "")
     default_base_path = ALLOWED_BASE_PATHS[0] if ALLOWED_BASE_PATHS else ""
     return templates.TemplateResponse(
         "edit_xml.html",
         {
             "request": request,
-            "csv_text": csv_text,
+            "csv_text": "",
             "scan_log": "",
             "save_log": "",
             "csv_headers": CSV_HEADERS,
@@ -338,9 +336,7 @@ async def post_save(
             "partials/save_log.html",
             {"request": request, "save_log": session["save_log"]},
         )
-    # 若表单未带上 csv_text（如 HTMX 未包含到），用 session 中的 last_csv 兜底
-    if not (csv_text or "").strip():
-        csv_text = session.get("last_csv", "")
+    # 若表单未带上 csv_text（如 HTMX 未包含到），此时视为无可保存内容，由 save_archives 负责给出提示
     include = include_header.lower() in ("1", "true", "yes", "on")
     check = check_count.lower() in ("1", "true", "yes", "on")
     save_log, _ = save_archives(archives, csv_text or "", include, check)
@@ -396,8 +392,7 @@ async def post_save_stream(
         def err():
             yield "错误：扫描到的压缩包路径不在允许范围内。\n".encode("utf-8")
         return StreamingResponse(err(), media_type="text/plain; charset=utf-8")
-    if not (csv_text or "").strip():
-        csv_text = session.get("last_csv", "")
+    # 若表单未带上 csv_text，此时视为无可保存内容，由 save_archives_streaming 负责给出提示
     include = include_header.lower() in ("1", "true", "yes", "on")
     check = check_count.lower() in ("1", "true", "yes", "on")
     return StreamingResponse(
@@ -408,13 +403,13 @@ async def post_save_stream(
 
 @app.get("/export", response_class=Response)
 async def get_export(request: Request):
-    """从 session 取 last_csv 与 comic_dir/archives，生成 CSV 下载（兼容旧链接）。"""
+    """从 session 取 comic_dir/archives，生成 CSV 下载（兼容旧链接）。不再依赖 last_csv，避免大 CSV 存入 Cookie。"""
     session = request.session
-    csv_text = session.get("last_csv", "")
     comic_dir = session.get("comic_dir", "")
     archives = session.get("archives") or []
     include_header = True
-    data, filename = export_csv(csv_text, include_header, comic_dir, archives)
+    # 传入空 csv_text，让 export_csv 根据 archives 重新生成 CSV 内容
+    data, filename = export_csv("", include_header, comic_dir, archives)
     return Response(
         content=data,
         media_type="text/csv; charset=utf-8",
@@ -479,7 +474,6 @@ async def post_batch_edit(
     suffix_val: str = Form(""),
 ):
     """批量编辑 CSV：batch_set / find_replace / prefix / suffix / t2s / s2t。返回更新后的 CSV 区片段。"""
-    session = request.session
     form = await request.form()
     cols = form.getlist("columns") if "columns" in form else []
     include = include_header.lower() in ("1", "true", "yes", "on")
@@ -502,7 +496,6 @@ async def post_batch_edit(
             out = batch_convert(csv_text, include, cols, "s2t")
         else:
             out = batch_convert_all(csv_text, include, "s2t")
-    session["last_csv"] = out
     return templates.TemplateResponse(
         "partials/csv_area.html",
         {"request": request, "csv_text": out, "csv_headers": CSV_HEADERS},

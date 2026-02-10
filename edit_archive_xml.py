@@ -345,6 +345,7 @@ def save_archives(
     csv_text: str,
     include_header: bool,
     check_count: bool,
+    original_rows: dict[str, list[str]] | None = None,
 ) -> tuple[str, bool]:
     """
     将 CSV 内容写回各压缩包；仅对 ComicInfo 有改动的文档执行写入。
@@ -403,6 +404,19 @@ def save_archives(
             continue
         if len(row) < 12:
             row = row + [""] * (12 - len(row))
+
+        # 若提供了扫描时的原始行，且当前行与原始行完全一致，则视为未改动，跳过写入
+        if original_rows is not None:
+            orig = original_rows.get(name)
+            if orig is not None:
+                # 对齐长度后比较，忽略尾部缺失列带来的差异
+                max_len = max(len(row), len(orig))
+                cur = row + [""] * (max_len - len(row))
+                ori = orig + [""] * (max_len - len(orig))
+                if cur == ori:
+                    logs.append(f"[{idx+1}/{total}] 跳过(与扫描时内容一致): {name}")
+                    continue
+
         new_fields = {
             "Title": row[1],
             "Series": row[2],
@@ -438,6 +452,7 @@ def save_archives_streaming(
     csv_text: str,
     include_header: bool,
     check_count: bool,
+    original_rows: dict[str, list[str]] | None = None,
 ):
     """
     将 CSV 内容写回各压缩包，逐条 yield 日志行（用于流式输出）。
@@ -500,6 +515,17 @@ def save_archives_streaming(
             continue
         if len(row) < 12:
             row = row + [""] * (12 - len(row))
+
+        # 若提供了扫描时的原始行，且当前行与原始行完全一致，则视为未改动，跳过写入
+        if original_rows is not None:
+            orig = original_rows.get(name)
+            if orig is not None:
+                max_len = max(len(row), len(orig))
+                cur = row + [""] * (max_len - len(row))
+                ori = orig + [""] * (max_len - len(orig))
+                if cur == ori:
+                    yield f"[{idx+1}/{total}] 跳过(与扫描时内容一致): {name}"
+                    continue
         new_fields = {
             "Title": row[1],
             "Series": row[2],

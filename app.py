@@ -6,6 +6,8 @@ import time
 import uuid
 import urllib.parse
 from pathlib import Path
+import csv
+import io
 
 from starlette.responses import StreamingResponse
 
@@ -226,9 +228,30 @@ async def post_scan(
     csv_text, scan_log, archives = scan_archives(allowed, include, sort_mode)
     session["scan_log"] = scan_log
     session["comic_dir"] = allowed
-    # 用服务端缓存存 archives，避免 session cookie 过大导致保存时 session 为空
+    # 基于当前 CSV 内容构建「扫描时」的原始行映射，用于后续保存时判断是否改动
+    orig_rows: dict[str, list[str]] = {}
+    try:
+        reader = csv.reader(io.StringIO(csv_text or ""))
+        rows = list(reader)
+        start_idx = 1 if include and rows else 0
+        for r in rows[start_idx:]:
+            if not r:
+                continue
+            fn = (r[0] if len(r) > 0 else "").strip()
+            if not fn:
+                continue
+            orig_rows[fn] = r
+    except Exception:
+        orig_rows = {}
+
+    # 用服务端缓存存 archives 与原始行，避免 session cookie 过大导致保存时 session 为空
     scan_token = uuid.uuid4().hex
-    _SCAN_CACHE[scan_token] = {"archives": archives, "comic_dir": allowed, "ts": time.time()}
+    _SCAN_CACHE[scan_token] = {
+        "archives": archives,
+        "comic_dir": allowed,
+        "orig_rows": orig_rows,
+        "ts": time.time(),
+    }
     return templates.TemplateResponse(
         "partials/scan_result.html",
         {
@@ -298,9 +321,31 @@ async def post_scan_json(
     csv_text, scan_log, archives = scan_archives(allowed, include, sort_mode)
     session["scan_log"] = scan_log
     session["comic_dir"] = allowed
-    # 缓存 archives，避免存入 session
+
+    # 构建「扫描时」的原始行映射
+    orig_rows: dict[str, list[str]] = {}
+    try:
+        reader = csv.reader(io.StringIO(csv_text or ""))
+        rows = list(reader)
+        start_idx = 1 if include and rows else 0
+        for r in rows[start_idx:]:
+            if not r:
+                continue
+            fn = (r[0] if len(r) > 0 else "").strip()
+            if not fn:
+                continue
+            orig_rows[fn] = r
+    except Exception:
+        orig_rows = {}
+
+    # 缓存 archives 与原始行，避免存入 session
     scan_token = uuid.uuid4().hex
-    _SCAN_CACHE[scan_token] = {"archives": archives, "comic_dir": allowed, "ts": time.time()}
+    _SCAN_CACHE[scan_token] = {
+        "archives": archives,
+        "comic_dir": allowed,
+        "orig_rows": orig_rows,
+        "ts": time.time(),
+    }
     return JSONResponse(
         {
             "ok": True,
@@ -321,6 +366,7 @@ async def post_save(
 ):
     """将 CSV 写回压缩包，返回保存日志片段。优先从 scan_token 取 archives，避免 session cookie 过大导致为空。"""
     session = request.session
+    cache_entry = _SCAN_CACHE.get(scan_token) or {}
     archives, _ = _get_archives_from_token(scan_token)
     if not archives:
         archives = session.get("archives") or []
@@ -339,7 +385,8 @@ async def post_save(
     # 若表单未带上 csv_text（如 HTMX 未包含到），此时视为无可保存内容，由 save_archives 负责给出提示
     include = include_header.lower() in ("1", "true", "yes", "on")
     check = check_count.lower() in ("1", "true", "yes", "on")
-    save_log, _ = save_archives(archives, csv_text or "", include, check)
+    orig_rows = cache_entry.get("orig_rows") or None
+    save_log, _ = save_archives(archives, csv_text or "", include, check, orig_rows)
     session["save_log"] = save_log
     return templates.TemplateResponse(
         "partials/save_log.html",
@@ -347,9 +394,15 @@ async def post_save(
     )
 
 
-def _save_stream_generator(archives: list[str], csv_text: str, include: bool, check: bool):
+def _save_stream_generator(
+    archives: list[str],
+    csv_text: str,
+    include: bool,
+    check: bool,
+    original_rows: dict[str, list[str]] | None,
+):
     """生成逐行日志，每行末尾带换行，便于前端按行追加。"""
-    for line in save_archives_streaming(archives, csv_text, include, check):
+    for line in save_archives_streaming(archives, csv_text, include, check, original_rows):
         yield (line + "\n").encode("utf-8")
 
 
@@ -396,6 +449,7 @@ async def post_save_stream(request: Request):
     include_raw = payload.get("include_header", True)
     check_raw = payload.get("check_count", True)
 
+    cache_entry = _SCAN_CACHE.get(scan_token) or {}
     archives, _ = _get_archives_from_token(scan_token)
     if not archives:
         archives = session.get("archives") or []
@@ -410,8 +464,9 @@ async def post_save_stream(request: Request):
 
     include = str(include_raw).lower() in ("1", "true", "yes", "on")
     check = str(check_raw).lower() in ("1", "true", "yes", "on")
+    orig_rows = cache_entry.get("orig_rows") or None
     return StreamingResponse(
-        _save_stream_generator(archives, csv_text or "", include, check),
+        _save_stream_generator(archives, csv_text or "", include, check, orig_rows),
         media_type="text/plain; charset=utf-8",
     )
 

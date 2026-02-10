@@ -200,13 +200,34 @@ async def post_save(
 
 @app.get("/export", response_class=Response)
 async def get_export(request: Request):
-    """从 session 取 last_csv 与 comic_dir/archives，生成 CSV 下载。"""
+    """从 session 取 last_csv 与 comic_dir/archives，生成 CSV 下载（兼容旧链接）。"""
     session = request.session
     csv_text = session.get("last_csv", "")
     comic_dir = session.get("comic_dir", "")
     archives = session.get("archives") or []
-    include_header = True  # 导出时通常带表头
+    include_header = True
     data, filename = export_csv(csv_text, include_header, comic_dir, archives)
+    return Response(
+        content=data,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )
+
+
+@app.post("/export", response_class=Response)
+async def post_export(
+    request: Request,
+    csv_text: str = Form(""),
+    include_header: str = Form("true"),
+):
+    """用当前提交的 csv_text 生成 CSV 下载，避免 session 为空导致内容为空。"""
+    session = request.session
+    comic_dir = session.get("comic_dir", "")
+    archives = session.get("archives") or []
+    include = include_header.lower() in ("1", "true", "yes", "on")
+    data, filename = export_csv(csv_text or "", include, comic_dir, archives)
     return Response(
         content=data,
         media_type="text/csv; charset=utf-8",

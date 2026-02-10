@@ -23,6 +23,9 @@
     .accordion { border: 1px solid #ccc; border-radius: 4px; margin-top: 1rem; background: #fafafa; }
     .accordion summary { padding: 0.5rem 1rem; cursor: pointer; }
     .accordion .body { padding: 1rem; border-top: 1px solid #ccc; }
+    .batch-cols-label { display: inline-block; margin-right: 0.5rem; vertical-align: top; color: #555; }
+    .batch-cols-checkboxes { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; align-items: center; }
+    .batch-cols-option { display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; white-space: nowrap; }
     a.btn, a#export-btn { color: #fff; text-decoration: none; }
     .htmx-request .htmx-indicator { display: inline; }
     .htmx-indicator { display: none; }
@@ -96,28 +99,28 @@
     <div class="body">
       <div class="row">
         <button type="button" id="batch-t2s-all"
-          hx-post="/batch-edit" hx-include="#csv_text, #include_header, #batch_columns"
+          hx-post="/batch-edit" hx-include="#csv_text, #include_header, #batch_columns input[name=columns]:checked"
           hx-vals='{"action": "t2s"}' hx-target="body" hx-swap="none" hx-trigger="click">全部列：繁体转简体（除 FileName）</button>
         <button type="button" id="batch-s2t-all"
-          hx-post="/batch-edit" hx-include="#csv_text, #include_header, #batch_columns"
+          hx-post="/batch-edit" hx-include="#csv_text, #include_header, #batch_columns input[name=columns]:checked"
           hx-vals='{"action": "s2t"}' hx-target="body" hx-swap="none" hx-trigger="click">全部列：简体转繁体（除 FileName）</button>
       </div>
       <div class="row">
-        <label for="batch_columns">选择批量编辑列</label>
-        <select id="batch_columns" name="columns" multiple size="4" style="max-width: 320px;">
+        <span class="batch-cols-label">选择批量编辑列</span>
+        <div id="batch_columns" class="batch-cols-checkboxes">
           {% for h in csv_headers %}
           {% if h != "FileName" %}
-          <option value="{{ h }}">{{ h }}</option>
+          <label class="batch-cols-option"><input type="checkbox" name="columns" value="{{ h }}" /> {{ h }}</label>
           {% endif %}
           {% endfor %}
-        </select>
+        </div>
       </div>
       <div class="row">
         <button type="button" id="batch-t2s-cols"
-          hx-post="/batch-edit" hx-include="#csv_text, #include_header, #batch_columns"
+          hx-post="/batch-edit" hx-include="#csv_text, #include_header, #batch_columns input[name=columns]:checked"
           hx-vals='{"action": "t2s"}' hx-target="body" hx-swap="none" hx-trigger="click">所选列：繁体转简体</button>
         <button type="button" id="batch-s2t-cols"
-          hx-post="/batch-edit" hx-include="#csv_text, #include_header, #batch_columns"
+          hx-post="/batch-edit" hx-include="#csv_text, #include_header, #batch_columns input[name=columns]:checked"
           hx-vals='{"action": "s2t"}' hx-target="body" hx-swap="none" hx-trigger="click">所选列：简体转繁体</button>
       </div>
       <div class="row">
@@ -150,7 +153,11 @@
     <details class="accordion" open>
       <summary>下载 / 导入</summary>
       <div class="body">
-        <a id="export-btn" href="/export" download class="btn">下载 CSV</a>
+        <form id="export-form" method="POST" action="/export" target="_blank" style="display: inline;">
+          <input type="hidden" name="csv_text" id="export_csv_hidden" value="" />
+          <input type="hidden" name="include_header" id="export_include_header" value="true" />
+          <button type="submit" class="btn" id="export-btn">下载 CSV</button>
+        </form>
         <form id="import-form" hx-post="/import" hx-target="#csv-area" hx-swap="outerHTML" hx-encoding="multipart/form-data" style="display: inline; margin-top: 0.5rem;">
           <input type="hidden" name="include_header" id="import_include_header" value="true" />
           <label for="import_file" style="display: inline;">导入 CSV</label>
@@ -195,6 +202,13 @@
     document.getElementById('import-form').addEventListener('submit', function() {
       var cb = document.getElementById('include_header');
       document.getElementById('import_include_header').value = cb && cb.checked ? 'true' : 'false';
+    });
+    // 导出前把当前 CSV 编辑区内容填入表单，避免下载为空
+    document.getElementById('export-form').addEventListener('submit', function() {
+      var csvEl = document.getElementById('csv_text');
+      document.getElementById('export_csv_hidden').value = csvEl ? csvEl.value : '';
+      var cb = document.getElementById('include_header');
+      document.getElementById('export_include_header').value = cb && cb.checked ? 'true' : 'false';
     });
   </script>
 </body>

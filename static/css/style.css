@@ -1,7 +1,7 @@
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
 body { font-family: system-ui, sans-serif; background: #fff; color: #333; display: flex; min-height: 100vh; line-height: 1.5; }
-.main-content { flex: 1; min-width: 0; overflow-y: auto; padding: 1rem 2rem; }
+.main-content { flex: 1; min-width: 0; overflow-y: auto; padding: 1rem 2rem; max-width: 100%; }
 .log-panel { width: var(--log-panel-width, 320px); min-width: 40px; max-width: 80vw; flex-shrink: 0; height: 100vh; display: flex; flex-direction: column; border-left: 1px solid #ddd; background: #fafafa; position: relative; transition: width 0.2s ease; }
 .log-panel.collapsed { width: 40px !important; min-width: 40px; }
 .log-panel.collapsed .log-panel-header .section-title,
@@ -22,7 +22,7 @@ body { font-family: system-ui, sans-serif; background: #fff; color: #333; displa
 h1 { font-size: 1.25rem; margin-bottom: 0.5rem; }
 .subtitle { color: #666; font-size: 0.9rem; margin-bottom: 1rem; }
 label { display: block; margin-top: 0.75rem; margin-bottom: 0.25rem; color: #555; }
-input[type="text"], select, textarea { width: 100%; max-width: 640px; padding: 0.5rem; background: #fff; border: 1px solid #ccc; border-radius: 4px; color: #333; }
+input[type="text"], select, textarea { width: 100%; max-width: min(640px, 100%); padding: 0.5rem; background: #fff; border: 1px solid #ccc; border-radius: 4px; color: #333; box-sizing: border-box; }
 textarea { min-height: 120px; font-family: ui-monospace, monospace; font-size: 0.875rem; }
 #csv-area textarea { min-height: 280px; max-width: none; width: 100%; white-space: pre; overflow-x: auto; }
 .csv-table-container { overflow: auto; max-height: 400px; border: 1px solid #ddd; border-radius: 4px; margin-top: 0.25rem; }
@@ -50,7 +50,7 @@ a.btn, a#export-btn { color: #fff; text-decoration: none; }
 /* 请求进行中禁用按钮，避免重复提交导致日志与操作错位 */
 #scan-btn.htmx-request { pointer-events: none; opacity: 0.7; }
 #save-form.saving #save-btn { pointer-events: none; opacity: 0.7; }
-.path-with-browse { display: flex; gap: 0.5rem; align-items: center; max-width: 640px; }
+.path-with-browse { display: flex; gap: 0.5rem; align-items: center; max-width: min(640px, 100%); width: 100%; }
 .path-with-browse input { flex: 1; min-width: 0; }
 .path-with-browse .btn { flex-shrink: 0; margin-top: 0; }
 /* 布局体系 */
@@ -61,6 +61,25 @@ a.btn, a#export-btn { color: #fff; text-decoration: none; }
 .form-row .control-group label { margin: 0; display: inline-flex; align-items: center; gap: 0.25rem; }
 .control-group { margin-bottom: 0.5rem; }
 .control-group label { margin-bottom: 0.25rem; }
+
+/* 目录选择：网格排布，宽度自适应 */
+.dir-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 1rem 2rem; }
+.dir-path-group { grid-column: 1 / -1; }
+.dir-list-row { flex: 1; min-width: 0; }
+.dir-list-row .dir-list-input { flex: 1; min-width: 12rem; max-width: 100%; }
+.dir-edit-group { grid-column: 1 / -1; }
+.dir-edit-group input { max-width: min(640px, 100%); }
+
+/* 扫描选项：横向排布，自适应 */
+.scan-options-row { flex-wrap: wrap; gap: 1rem; }
+.scan-option-item { display: inline-flex; align-items: center; gap: 0.5rem; margin: 0; }
+.scan-option-item label { margin: 0; }
+.sort-select { max-width: min(180px, 100%); }
+
+/* 批量编辑输入框：弹性宽度 */
+.batch-input { max-width: min(200px, 100%); flex: 1; min-width: 6rem; }
+.batch-input-val { max-width: min(240px, 100%); }
+.batch-input-small { max-width: min(120px, 100%); flex: 0 1 auto; min-width: 4rem; }
 .batch-group { margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid #e8e8e8; }
 .batch-group:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
 .batch-group-title { font-size: 0.85rem; color: #555; margin-bottom: 0.5rem; }
@@ -78,3 +97,14 @@ a.btn, a#export-btn { color: #fff; text-decoration: none; }
 #browse-modal .folder-item::before { content: "📁 "; }
 #browse-modal .folder-item.parent::before { content: "⬆ "; }
 #browse-modal .actions { margin-top: 1rem; display: flex; gap: 0.5rem; justify-content: flex-end; }
+
+/* 窄屏自适应 */
+@media (max-width: 768px) {
+  .main-content { padding: 1rem; }
+  .dir-form-grid { grid-template-columns: 1fr; gap: 1rem; }
+  .dir-list-row { flex-direction: column; align-items: stretch; }
+  .dir-list-row .dir-list-input { min-width: 0; }
+  .scan-options-row { flex-direction: column; align-items: flex-start; }
+  .form-row { flex-direction: column; align-items: stretch; }
+  .form-row .batch-input, .form-row .batch-input-small { max-width: 100%; }
+}

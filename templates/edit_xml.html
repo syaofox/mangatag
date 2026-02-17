@@ -13,19 +13,19 @@
   <h1>编辑压缩包内 XML</h1>
   <p class="subtitle">扫描目录中的 .cbz/.zip，读取 ComicInfo.xml 后在下方 CSV 中编辑并保存回压缩包。第一列为 FileName（固定），其余列为元数据。</p>
 
-  <section class="section">
+  <section class="section dir-section">
     <h2 class="section-title">目录选择</h2>
-    <form id="dir-form">
-      <div class="control-group">
+    <form id="dir-form" class="dir-form-grid">
+      <div class="control-group dir-path-group">
         <label for="base_path">基路径</label>
         <div class="path-with-browse">
           <input type="text" id="base_path" name="base_path" value="{{ default_base_path }}" placeholder="如 /home/user/outputs" />
           <button type="button" id="browse-btn" class="btn" title="浏览文件夹">浏览</button>
         </div>
       </div>
-      <div class="control-group">
+      <div class="control-group dir-select-group">
         <label for="dir_list">漫画文件夹</label>
-        <div class="form-row" style="align-items: center;">
+        <div class="form-row dir-list-row">
           <button type="button" id="refresh-dirs"
             hx-get="/api/dirs"
             hx-include="#base_path"
@@ -34,29 +34,28 @@
             hx-trigger="click">刷新</button>
           <span class="htmx-indicator">加载中…</span>
           <input type="text" id="dir_list" name="dir_list" list="dir_list_datalist"
-                 placeholder="输入或选择子目录"
-                 style="min-width: 200px; max-width: 400px;" />
+                 placeholder="输入或选择子目录" class="dir-list-input" />
           <datalist id="dir_list_datalist">
             <option value="">-- 选择 --</option>
           </datalist>
         </div>
       </div>
-      <div class="control-group">
+      <div class="control-group dir-edit-group">
         <label for="edit_dir">章节压缩包目录</label>
-        <input type="text" id="edit_dir" name="comic_dir" placeholder="如 /path/to/comic/dir" style="max-width: 640px;" />
+        <input type="text" id="edit_dir" name="comic_dir" placeholder="如 /path/to/comic/dir" />
       </div>
     </form>
   </section>
 
-  <section class="section">
+  <section class="section scan-section">
     <h2 class="section-title">扫描选项</h2>
-    <div class="form-row">
-      <label class="control-group" style="display: inline-flex; align-items: center; margin: 0;">
+    <div class="form-row scan-options-row">
+      <label class="control-group scan-option-item">
         <input type="checkbox" id="include_header" name="include_header" checked /> 包含表头
       </label>
-      <div class="control-group" style="display: flex; align-items: center; gap: 0.5rem; margin: 0;">
-        <label for="sort_mode" style="margin: 0;">排序</label>
-        <select id="sort_mode" name="sort_mode" style="max-width: 180px;">
+      <div class="control-group scan-option-item">
+        <label for="sort_mode">排序</label>
+        <select id="sort_mode" name="sort_mode" class="sort-select">
           {% for opt in sort_choices %}
           <option value="{{ opt }}" {% if opt == "按数字大小顺序" %}selected{% endif %}>{{ opt }}</option>
           {% endfor %}
@@ -113,7 +112,7 @@
       <div class="batch-group">
         <div class="batch-group-title">批量置为</div>
         <div class="form-row">
-          <input type="text" id="batch_set_val" name="batch_set_val" placeholder="值" style="max-width: 240px;" />
+          <input type="text" id="batch_set_val" name="batch_set_val" placeholder="值" class="batch-input batch-input-val" />
           <button type="button" id="batch-set-btn"
             hx-post="/batch-edit" hx-include="#csv_text, #include_header, #batch_columns, #batch_set_val"
             hx-vals='{"action": "batch_set"}' hx-target="body" hx-swap="none" hx-trigger="click"
@@ -123,8 +122,8 @@
       <div class="batch-group">
         <div class="batch-group-title">查找替换</div>
         <div class="form-row">
-          <input type="text" id="fr_find" name="fr_find" placeholder="查找内容" style="max-width: 200px;" />
-          <input type="text" id="fr_replace" name="fr_replace" placeholder="替换为" style="max-width: 200px;" />
+          <input type="text" id="fr_find" name="fr_find" placeholder="查找内容" class="batch-input" />
+          <input type="text" id="fr_replace" name="fr_replace" placeholder="替换为" class="batch-input" />
           <button type="button" id="batch-fr-btn"
             hx-post="/batch-edit" hx-include="#csv_text, #include_header, #batch_columns, #fr_find, #fr_replace"
             hx-vals='{"action": "find_replace"}' hx-target="body" hx-swap="none" hx-trigger="click"
@@ -134,12 +133,12 @@
       <div class="batch-group">
         <div class="batch-group-title">前后缀</div>
         <div class="form-row">
-          <input type="text" id="prefix_val" name="prefix_val" placeholder="前缀" style="max-width: 120px;" />
+          <input type="text" id="prefix_val" name="prefix_val" placeholder="前缀" class="batch-input-small" />
           <button type="button" id="batch-prefix-btn"
             hx-post="/batch-edit" hx-include="#csv_text, #include_header, #batch_columns, #prefix_val"
             hx-vals='{"action": "prefix"}' hx-target="body" hx-swap="none" hx-trigger="click"
             hx-on::before-request="window.csvEditor && window.csvEditor.sync()">添加前缀</button>
-          <input type="text" id="suffix_val" name="suffix_val" placeholder="后缀" style="max-width: 120px; margin-left: 0.5rem;" />
+          <input type="text" id="suffix_val" name="suffix_val" placeholder="后缀" class="batch-input-small" />
           <button type="button" id="batch-suffix-btn"
             hx-post="/batch-edit" hx-include="#csv_text, #include_header, #batch_columns, #suffix_val"
             hx-vals='{"action": "suffix"}' hx-target="body" hx-swap="none" hx-trigger="click"

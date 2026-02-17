@@ -1,1 +1,5 @@
-<div id="save-log" class="log" hx-swap-oob="innerHTML">{{ save_log }}</div>
+<div id="unified-log" class="log" hx-swap-oob="innerHTML">{% if scan_log %}{{ scan_log }}
+
+--- 保存 ---
+
+{% endif %}{{ save_log }}</div>

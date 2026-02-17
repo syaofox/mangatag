@@ -8,7 +8,12 @@
   <script>htmx.config.allowScriptTags = true;</script>
   <style>
     * { box-sizing: border-box; }
-    body { font-family: system-ui, sans-serif; background: #fff; color: #333; margin: 0; padding: 1rem 2rem; line-height: 1.5; }
+    html, body { height: 100%; margin: 0; }
+    body { font-family: system-ui, sans-serif; background: #fff; color: #333; display: flex; min-height: 100vh; line-height: 1.5; }
+    .main-content { flex: 1; min-width: 0; overflow-y: auto; padding: 1rem 2rem; }
+    .log-panel { width: 320px; flex-shrink: 0; height: 100vh; display: flex; flex-direction: column; border-left: 1px solid #ddd; background: #fafafa; }
+    .log-panel .section-title { padding: 0 1rem; margin: 1rem 0 0.5rem; }
+    .log-panel #unified-log { flex: 1; overflow-y: auto; min-height: 0; margin: 0 1rem 1rem; }
     h1 { font-size: 1.25rem; margin-bottom: 0.5rem; }
     .subtitle { color: #666; font-size: 0.9rem; margin-bottom: 1rem; }
     label { display: block; margin-top: 0.75rem; margin-bottom: 0.25rem; color: #555; }
@@ -28,7 +33,6 @@
     .row { display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end; }
     .col { flex: 1; min-width: 200px; }
     .log { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 0.8rem; background: #f5f5f5; padding: 0.75rem; border-radius: 4px; min-height: 80px; border: 1px solid #ddd; }
-    #scan-log { max-height: 200px; overflow-y: auto; }
     .accordion { border: 1px solid #ccc; border-radius: 4px; background: #fafafa; }
     .accordion summary { padding: 0.5rem 1rem; cursor: pointer; }
     .accordion .body { padding: 1rem; border-top: 1px solid #ccc; }
@@ -72,6 +76,7 @@
   </style>
 </head>
 <body>
+  <div class="main-content">
   <h1>编辑压缩包内 XML</h1>
   <p class="subtitle">扫描目录中的 .cbz/.zip，读取 ComicInfo.xml 后在下方 CSV 中编辑并保存回压缩包。第一列为 FileName（固定），其余列为元数据。</p>
 
@@ -126,13 +131,6 @@
       </div>
       <button type="button" id="scan-btn" class="btn btn-primary">扫描目录并读取 ComicInfo.xml</button>
       <span class="htmx-indicator">扫描中…</span>
-    </div>
-  </section>
-
-  <section class="section">
-    <div id="scan-log-wrap">
-      <label>扫描日志</label>
-      <div id="scan-log" class="log">{{ scan_log }}</div>
     </div>
   </section>
 
@@ -255,13 +253,6 @@
     <span id="save-indicator" class="htmx-indicator" style="display: none;">保存中…</span>
   </section>
 
-  <section class="section">
-    <div id="save-log-wrap">
-      <label>保存日志</label>
-      <div id="save-log" class="log">{{ save_log }}</div>
-    </div>
-  </section>
-
   <div id="browse-modal" role="dialog" aria-label="浏览文件夹">
     <div class="dialog">
       <h3>选择基路径目录</h3>
@@ -273,6 +264,16 @@
       </div>
     </div>
   </div>
+  </div>
+
+  <aside class="log-panel">
+    <h2 class="section-title">日志</h2>
+    <div id="unified-log" class="log">{% if scan_log %}{{ scan_log }}{% endif %}{% if save_log %}
+
+--- 保存 ---
+
+{{ save_log }}{% endif %}</div>
+  </aside>
 
   <script>
     // 浏览文件夹
@@ -437,10 +438,8 @@
       var scanBtn = document.getElementById('scan-btn');
       if (!scanBtn) return;
       scanBtn.addEventListener('click', function() {
-        var scanLogEl = document.getElementById('scan-log');
-        var saveLogEl = document.getElementById('save-log');
-        if (scanLogEl) scanLogEl.textContent = '扫描中…';
-        if (saveLogEl) saveLogEl.textContent = '';
+        var unifiedLogEl = document.getElementById('unified-log');
+        if (unifiedLogEl) unifiedLogEl.textContent = '扫描中…';
 
         var comicDir = (document.getElementById('edit_dir') || {}).value || '';
         var includeHeaderCb = document.getElementById('include_header');
@@ -463,12 +462,12 @@
               return reader.read().then(function(opt) {
                 if (opt.done) return;
                 var text = decoder.decode(opt.value, { stream: true });
-                if (scanLogEl) {
+                if (unifiedLogEl) {
                   // 若是第一次块并且仍然是「扫描中…」，先清空
-                  if (scanLogEl.textContent === '扫描中…') {
-                    scanLogEl.textContent = '';
+                  if (unifiedLogEl.textContent === '扫描中…') {
+                    unifiedLogEl.textContent = '';
                   }
-                  scanLogEl.textContent += text;
+                  unifiedLogEl.textContent += text;
                 }
                 return read();
               });
@@ -476,8 +475,8 @@
             return read();
           })
           .catch(function(err) {
-            if (scanLogEl) {
-              scanLogEl.textContent = (scanLogEl.textContent || '') + '\n请求失败: ' + err.message;
+            if (unifiedLogEl) {
+              unifiedLogEl.textContent = (unifiedLogEl.textContent || '') + '\n请求失败: ' + err.message;
             }
           });
 
@@ -490,8 +489,8 @@
           .then(function(res) { return res.json(); })
           .then(function(data) {
             if (!data || !data.ok) {
-              if (scanLogEl && data && data.error) {
-                scanLogEl.textContent = data.error;
+              if (unifiedLogEl && data && data.error) {
+                unifiedLogEl.textContent = data.error;
               }
               return;
             }
@@ -507,8 +506,8 @@
             }
           })
           .catch(function(err) {
-            if (scanLogEl) {
-              scanLogEl.textContent = (scanLogEl.textContent || '') + '\n获取 CSV 结果失败: ' + err.message;
+            if (unifiedLogEl) {
+              unifiedLogEl.textContent = (unifiedLogEl.textContent || '') + '\n获取 CSV 结果失败: ' + err.message;
             }
           });
       });
@@ -556,10 +555,10 @@
     document.getElementById('save-form').addEventListener('submit', function(e) {
       e.preventDefault();
       var form = this;
-      var saveLogEl = document.getElementById('save-log');
+      var unifiedLogEl = document.getElementById('unified-log');
       var saveBtn = document.getElementById('save-btn');
       var saveIndicator = document.getElementById('save-indicator');
-      if (!saveLogEl || !saveBtn) return;
+      if (!unifiedLogEl || !saveBtn) return;
 
       // 同步表单隐藏域（表格 -> csv_text -> 隐藏域）
       if (window.csvEditor && window.csvEditor.sync) window.csvEditor.sync();
@@ -570,7 +569,7 @@
       var checkCb = document.getElementById('check_count');
       document.getElementById('save_check_count').value = checkCb && checkCb.checked ? 'true' : 'false';
 
-      saveLogEl.textContent = '';
+      if (unifiedLogEl.textContent) unifiedLogEl.textContent += '\n\n--- 保存 ---\n';
       form.classList.add('saving');
       if (saveIndicator) saveIndicator.style.display = 'inline';
 
@@ -596,7 +595,7 @@
             return reader.read().then(function(opt) {
               if (opt.done) return;
               var text = decoder.decode(opt.value, { stream: true });
-              saveLogEl.textContent += text;
+              unifiedLogEl.textContent += text;
               return read();
             });
           }
@@ -604,7 +603,7 @@
           return read();
         })
         .catch(function(err) {
-          saveLogEl.textContent = (saveLogEl.textContent || '') + '\n请求失败: ' + err.message;
+          unifiedLogEl.textContent = (unifiedLogEl.textContent || '') + '\n请求失败: ' + err.message;
         })
         .finally(function() {
           form.classList.remove('saving');

@@ -496,13 +496,21 @@ async def post_save(
         session["save_log"] = "请先扫描目录以建立压缩包顺序。"
         return templates.TemplateResponse(
             "partials/save_log.html",
-            {"request": request, "save_log": session["save_log"]},
+            {
+                "request": request,
+                "save_log": session["save_log"],
+                "scan_log": session.get("scan_log", ""),
+            },
         )
     if not ensure_archives_allowed(archives):
         session["save_log"] = "错误：扫描到的压缩包路径不在允许范围内。"
         return templates.TemplateResponse(
             "partials/save_log.html",
-            {"request": request, "save_log": session["save_log"]},
+            {
+                "request": request,
+                "save_log": session["save_log"],
+                "scan_log": session.get("scan_log", ""),
+            },
         )
     # 若表单未带上 csv_text（如 HTMX 未包含到），此时视为无可保存内容，由 save_archives 负责给出提示
     include = include_header.lower() in ("1", "true", "yes", "on")
@@ -512,7 +520,11 @@ async def post_save(
     session["save_log"] = save_log
     return templates.TemplateResponse(
         "partials/save_log.html",
-        {"request": request, "save_log": save_log},
+        {
+            "request": request,
+            "save_log": save_log,
+            "scan_log": session.get("scan_log", ""),
+        },
     )
 
 

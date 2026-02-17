@@ -1,6 +1,5 @@
-{# 扫描时清空所有日志：先清空保存日志，再更新扫描日志与 CSV 区 #}
-<div id="save-log" class="log" hx-swap-oob="innerHTML"></div>
-<div id="scan-log" class="log" hx-swap-oob="innerHTML">{{ scan_log }}</div>
+{# 扫描时清空日志并更新扫描结果与 CSV 区 #}
+<div id="unified-log" class="log" hx-swap-oob="innerHTML">{{ scan_log }}</div>
 <div id="csv-area" hx-swap-oob="true">
   {% include "partials/csv_editor.html" %}
 </div>

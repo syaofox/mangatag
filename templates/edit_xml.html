@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>MangaTag - 编辑压缩包内 XML</title>
+  <title>MangaTag v{{ version }} - 编辑压缩包内 XML</title>
   <link rel="stylesheet" href="/static/css/style.css" />
   <script src="https://unpkg.com/htmx.org@1.9.10"></script>
   <script>htmx.config.allowScriptTags = true;</script>
 </head>
 <body>
   <div class="main-content">
-  <h1>编辑压缩包内 XML</h1>
+  <h1>编辑压缩包内 XML <span class="version-badge">v{{ version }}</span></h1>
   <p class="subtitle">扫描目录中的 .cbz/.zip，读取 ComicInfo.xml 后在下方 CSV 中编辑并保存回压缩包。第一列为 FileName（固定），其余列为元数据。</p>
 
   <section class="section dir-section">

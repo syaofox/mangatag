@@ -21,4 +21,4 @@ services:
     user: "1000:1000"
     # 若需访问宿主机上的书籍目录，取消注释并改为实际路径，例如：
     volumes:
-      - /home/syaofox/Downloads/books:/data/books
+      - /home/syaofox/Downloads/1:/data/books

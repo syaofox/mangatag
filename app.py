@@ -2,6 +2,7 @@
 FastAPI + HTMX 前端：编辑压缩包内 ComicInfo.xml。
 """
 import os
+import re
 import time
 import uuid
 import urllib.parse
@@ -198,6 +199,19 @@ app.add_middleware(
 )
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+
+def _get_version() -> str:
+    """从 pyproject.toml 解析 version 字段。"""
+    pyproject = BASE_DIR / "pyproject.toml"
+    if not pyproject.exists():
+        return "dev"
+    try:
+        text = pyproject.read_text(encoding="utf-8")
+        m = re.search(r'version\s*=\s*["\']([^"\']+)["\']', text)
+        return m.group(1) if m else "dev"
+    except Exception:
+        return "dev"
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
@@ -216,6 +230,7 @@ async def index(request: Request):
             "all_mark": ALL_MARK,
             "sort_choices": ["按数字大小顺序", "按字母顺序", "按Number列数字大小排序"],
             "default_base_path": default_base_path,
+            "version": _get_version(),
         },
     )
 

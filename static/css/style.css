@@ -20,6 +20,7 @@ body { font-family: system-ui, sans-serif; background: #fff; color: #333; displa
 .log-panel-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .log-panel #unified-log { flex: 1; overflow-y: auto; min-height: 0; margin: 0 1rem 1rem; }
 h1 { font-size: 1.25rem; margin-bottom: 0.25rem; }
+.version-badge { font-size: 0.7em; font-weight: normal; color: #888; margin-left: 0.35rem; }
 .subtitle { color: #666; font-size: 0.9rem; margin-bottom: 0.5rem; }
 label { display: block; margin-top: 0.4rem; margin-bottom: 0.15rem; color: #555; }
 input[type="text"], select, textarea { width: 100%; max-width: min(640px, 100%); background: #fff; border: 1px solid #ccc; border-radius: 4px; color: #333; box-sizing: border-box; }

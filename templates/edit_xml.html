@@ -26,6 +26,8 @@
       <div class="control-group dir-select-group">
         <label for="dir_list">漫画文件夹</label>
         <div class="form-row dir-list-row">
+          <input type="text" id="dir_list" name="dir_list" list="dir_list_datalist"
+                 placeholder="输入或选择子目录" class="dir-list-input" />
           <button type="button" id="refresh-dirs"
             hx-get="/api/dirs"
             hx-include="#base_path"
@@ -33,8 +35,6 @@
             hx-swap="innerHTML"
             hx-trigger="click">刷新</button>
           <span class="htmx-indicator">加载中…</span>
-          <input type="text" id="dir_list" name="dir_list" list="dir_list_datalist"
-                 placeholder="输入或选择子目录" class="dir-list-input" />
           <datalist id="dir_list_datalist">
             <option value="">-- 选择 --</option>
           </datalist>
@@ -66,26 +66,22 @@
     </div>
   </section>
 
-  <section class="section">
-    <details class="accordion" open>
-      <summary>下载 / 导入</summary>
-      <div class="body">
-        <div class="form-row">
-          <form id="export-form" method="POST" action="/export" target="_blank" style="display: inline-flex; align-items: center;">
-            <input type="hidden" name="csv_text" id="export_csv_hidden" value="" />
-            <input type="hidden" name="include_header" id="export_include_header" value="true" />
-            <input type="hidden" name="comic_dir" id="export_comic_dir" value="" />
-            <button type="submit" class="btn" id="export-btn">下载 CSV</button>
-          </form>
-          <form id="import-form" hx-post="/import" hx-target="#csv-area" hx-swap="outerHTML" hx-encoding="multipart/form-data" class="form-row">
-            <input type="hidden" name="include_header" id="import_include_header" value="true" />
-            <label for="import_file" style="margin: 0;">导入 CSV</label>
-            <input type="file" id="import_file" name="import_file" accept=".csv" required />
-            <button type="submit" id="import-btn">导入</button>
-          </form>
-        </div>
-      </div>
-    </details>
+  <section class="section import-export-section">
+    <h2 class="section-title">下载 / 导入</h2>
+    <div class="form-row">
+      <form id="export-form" method="POST" action="/export" target="_blank" style="display: inline-flex; align-items: center;">
+        <input type="hidden" name="csv_text" id="export_csv_hidden" value="" />
+        <input type="hidden" name="include_header" id="export_include_header" value="true" />
+        <input type="hidden" name="comic_dir" id="export_comic_dir" value="" />
+        <button type="submit" class="btn" id="export-btn">下载 CSV</button>
+      </form>
+      <form id="import-form" hx-post="/import" hx-target="#csv-area" hx-swap="outerHTML" hx-encoding="multipart/form-data" class="form-row">
+        <input type="hidden" name="include_header" id="import_include_header" value="true" />
+        <label for="import_file" style="margin: 0;">导入 CSV</label>
+        <input type="file" id="import_file" name="import_file" accept=".csv" required />
+        <button type="submit" id="import-btn">导入</button>
+      </form>
+    </div>
   </section>
 
   <section class="section save-section">

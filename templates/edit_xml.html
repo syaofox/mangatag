@@ -67,84 +67,6 @@
   </section>
 
   <section class="section">
-  <details class="accordion">
-    <summary>批量编辑</summary>
-    <div class="body">
-      <p class="batch-hint">基于下方 CSV 区当前内容（扫描后可能已更改）进行编辑。</p>
-      <div class="batch-group">
-        <div class="batch-group-title">繁简转换</div>
-        <div class="form-row">
-          <button type="button" id="batch-t2s-all"
-            hx-post="/batch-edit" hx-include="#csv_text, #include_header, #batch_columns input[name=columns]:checked"
-            hx-vals='{"action": "t2s"}' hx-target="body" hx-swap="none" hx-trigger="click"
-            hx-on::before-request="window.csvEditor && window.csvEditor.sync()">全部列：繁体转简体（除 FileName）</button>
-          <button type="button" id="batch-s2t-all"
-            hx-post="/batch-edit" hx-include="#csv_text, #include_header, #batch_columns input[name=columns]:checked"
-            hx-vals='{"action": "s2t"}' hx-target="body" hx-swap="none" hx-trigger="click"
-            hx-on::before-request="window.csvEditor && window.csvEditor.sync()">全部列：简体转繁体（除 FileName）</button>
-        </div>
-        <div class="form-row" style="margin-top: 0.5rem;">
-          <button type="button" id="batch-t2s-cols"
-            hx-post="/batch-edit" hx-include="#csv_text, #include_header, #batch_columns input[name=columns]:checked"
-            hx-vals='{"action": "t2s"}' hx-target="body" hx-swap="none" hx-trigger="click"
-            hx-on::before-request="window.csvEditor && window.csvEditor.sync()">所选列：繁体转简体</button>
-          <button type="button" id="batch-s2t-cols"
-            hx-post="/batch-edit" hx-include="#csv_text, #include_header, #batch_columns input[name=columns]:checked"
-            hx-vals='{"action": "s2t"}' hx-target="body" hx-swap="none" hx-trigger="click"
-            hx-on::before-request="window.csvEditor && window.csvEditor.sync()">所选列：简体转繁体</button>
-        </div>
-      </div>
-      <div class="batch-group">
-        <div class="batch-group-title">选择批量编辑列</div>
-        <div id="batch_columns" class="batch-cols-checkboxes">
-          {% for h in csv_headers %}
-          {% if h != "FileName" %}
-          <label class="batch-cols-option"><input type="checkbox" name="columns" value="{{ h }}" /> {{ h }}</label>
-          {% endif %}
-          {% endfor %}
-        </div>
-      </div>
-      <div class="batch-group">
-        <div class="batch-group-title">批量置为</div>
-        <div class="form-row">
-          <input type="text" id="batch_set_val" name="batch_set_val" placeholder="值" class="batch-input batch-input-val" />
-          <button type="button" id="batch-set-btn"
-            hx-post="/batch-edit" hx-include="#csv_text, #include_header, #batch_columns, #batch_set_val"
-            hx-vals='{"action": "batch_set"}' hx-target="body" hx-swap="none" hx-trigger="click"
-            hx-on::before-request="window.csvEditor && window.csvEditor.sync()">执行批量置为</button>
-        </div>
-      </div>
-      <div class="batch-group">
-        <div class="batch-group-title">查找替换</div>
-        <div class="form-row">
-          <input type="text" id="fr_find" name="fr_find" placeholder="查找内容" class="batch-input" />
-          <input type="text" id="fr_replace" name="fr_replace" placeholder="替换为" class="batch-input" />
-          <button type="button" id="batch-fr-btn"
-            hx-post="/batch-edit" hx-include="#csv_text, #include_header, #batch_columns, #fr_find, #fr_replace"
-            hx-vals='{"action": "find_replace"}' hx-target="body" hx-swap="none" hx-trigger="click"
-            hx-on::before-request="window.csvEditor && window.csvEditor.sync()">执行查找替换</button>
-        </div>
-      </div>
-      <div class="batch-group">
-        <div class="batch-group-title">前后缀</div>
-        <div class="form-row">
-          <input type="text" id="prefix_val" name="prefix_val" placeholder="前缀" class="batch-input-small" />
-          <button type="button" id="batch-prefix-btn"
-            hx-post="/batch-edit" hx-include="#csv_text, #include_header, #batch_columns, #prefix_val"
-            hx-vals='{"action": "prefix"}' hx-target="body" hx-swap="none" hx-trigger="click"
-            hx-on::before-request="window.csvEditor && window.csvEditor.sync()">添加前缀</button>
-          <input type="text" id="suffix_val" name="suffix_val" placeholder="后缀" class="batch-input-small" />
-          <button type="button" id="batch-suffix-btn"
-            hx-post="/batch-edit" hx-include="#csv_text, #include_header, #batch_columns, #suffix_val"
-            hx-vals='{"action": "suffix"}' hx-target="body" hx-swap="none" hx-trigger="click"
-            hx-on::before-request="window.csvEditor && window.csvEditor.sync()">添加后缀</button>
-        </div>
-      </div>
-    </div>
-  </details>
-  </section>
-
-  <section class="section">
     <details class="accordion" open>
       <summary>下载 / 导入</summary>
       <div class="body">
@@ -274,7 +196,7 @@
       });
     })();
 
-    // 导入/扫描/批量编辑后，若 #csv-area 被替换，需手动渲染表格（allowScriptTags 可能仍不执行，此作为后备）
+    // 导入/扫描后，若 #csv-area 被替换，需手动渲染表格（allowScriptTags 可能仍不执行，此作为后备）
     function maybeRenderCsvTable() {
       var dataEl = document.getElementById('csv-initial-data');
       var wrap = document.getElementById('csv-table-wrap');
@@ -298,15 +220,6 @@
       if (document.getElementById('csv-initial-data') && !document.getElementById('csv-data-table')) {
         setTimeout(maybeRenderCsvTable, 0);
       }
-    });
-
-    // 批量编辑前：HTMX 在 beforeRequest 之前就收集了表单值，需在 configRequest 中同步表格到 csv_text
-    document.body.addEventListener('htmx:configRequest', function(ev) {
-      var el = ev.detail && ev.detail.elt;
-      if (!el || (el.getAttribute('hx-post') || '').indexOf('batch-edit') < 0) return;
-      if (window.csvEditor && window.csvEditor.sync) window.csvEditor.sync();
-      var ta = document.getElementById('csv_text');
-      if (ta && ev.detail.parameters) ev.detail.parameters['csv_text'] = ta.value;
     });
 
     // 漫画文件夹输入：简繁体不敏感搜索，动态更新 datalist

@@ -61,6 +61,90 @@
     }
     return rows.map(function(r) { return r.map(escape).join(','); }).join('\n');
   }
+  function swapColumns(table, fromIdx, toIdx) {
+    if (fromIdx === toIdx) return;
+    var thr = table.querySelector('thead tr');
+    var ths = thr.querySelectorAll('th');
+    var hText = ths[fromIdx].textContent;
+    ths[fromIdx].textContent = ths[toIdx].textContent;
+    ths[toIdx].textContent = hText;
+    var trs = table.querySelectorAll('tbody tr');
+    for (var r = 0; r < trs.length; r++) {
+      var tds = trs[r].querySelectorAll('td');
+      var inpFrom = tds[fromIdx].querySelector('input');
+      var inpTo = tds[toIdx].querySelector('input');
+      var v = inpFrom.value;
+      inpFrom.value = inpTo.value;
+      inpTo.value = v;
+    }
+    sync();
+  }
+  function sortColumn(table, colIdx, ascending) {
+    var trs = Array.prototype.slice.call(table.querySelectorAll('tbody tr'));
+    var getVal = function(tr) {
+      var inp = tr.querySelectorAll('td input')[colIdx];
+      return inp ? String(inp.value || '').trim() : '';
+    };
+    trs.sort(function(a, b) {
+      var va = getVal(a), vb = getVal(b);
+      if (va === '' && vb === '') return 0;
+      if (va === '') return 1;
+      if (vb === '') return -1;
+      var cmp = va.localeCompare(vb, undefined, { numeric: true });
+      return ascending ? cmp : -cmp;
+    });
+    var tbody = table.querySelector('tbody');
+    trs.forEach(function(tr) { tbody.appendChild(tr); });
+    sync();
+  }
+  function fillColumnSequential(table, colIdx) {
+    var trs = table.querySelectorAll('tbody tr');
+    if (trs.length === 0) return;
+    var firstInp = trs[0].querySelectorAll('td input')[colIdx];
+    var start = 0;
+    if (firstInp && firstInp.value) {
+      var n = parseInt(firstInp.value, 10);
+      if (!isNaN(n)) start = n;
+    }
+    for (var r = 0; r < trs.length; r++) {
+      var inp = trs[r].querySelectorAll('td input')[colIdx];
+      if (inp) inp.value = String(start + r);
+    }
+    sync();
+  }
+  function showHeaderMenu(th, colIdx) {
+    var menu = document.getElementById('csv-header-menu');
+    if (!menu) {
+      menu = document.createElement('div');
+      menu.id = 'csv-header-menu';
+      menu.className = 'csv-header-menu';
+      menu.innerHTML = '<button type="button" data-action="sort-asc">排序升序</button><button type="button" data-action="sort-desc">排序降序</button><button type="button" data-action="seq">序号累加</button>';
+      document.body.appendChild(menu);
+      menu.addEventListener('click', function(ev) {
+        var btn = ev.target.closest('button[data-action]');
+        if (!btn) return;
+        var table = document.getElementById('csv-data-table');
+        var idx = parseInt(menu.dataset.colIdx, 10);
+        if (!table || isNaN(idx)) return;
+        if (btn.dataset.action === 'sort-asc') sortColumn(table, idx, true);
+        else if (btn.dataset.action === 'sort-desc') sortColumn(table, idx, false);
+        else if (btn.dataset.action === 'seq') fillColumnSequential(table, idx);
+        hideHeaderMenu();
+      });
+      document.addEventListener('click', function(ev) {
+        if (!menu.contains(ev.target) && !ev.target.closest('.csv-table th')) hideHeaderMenu();
+      });
+    }
+    menu.dataset.colIdx = colIdx;
+    var rect = th.getBoundingClientRect();
+    menu.style.left = rect.left + 'px';
+    menu.style.top = (rect.bottom + 2) + 'px';
+    menu.classList.add('open');
+  }
+  function hideHeaderMenu() {
+    var menu = document.getElementById('csv-header-menu');
+    if (menu) menu.classList.remove('open');
+  }
   function render(containerId, csvText) {
     var rows = parseCSV(csvText);
     var headers = CSV_HEADERS.slice();
@@ -82,9 +166,46 @@
     table.id = 'csv-data-table';
     var thead = document.createElement('thead');
     var thr = document.createElement('tr');
-    headers.forEach(function(h) {
+    var dragSrcIdx = null;
+    headers.forEach(function(h, c) {
       var th = document.createElement('th');
       th.textContent = h;
+      th.dataset.colIndex = c;
+      if (h !== 'FileName') {
+        th.className = 'csv-th-draggable';
+        th.draggable = true;
+        th.addEventListener('dragstart', function(ev) {
+          dragSrcIdx = parseInt(ev.target.dataset.colIndex, 10);
+          ev.dataTransfer.setData('text/plain', dragSrcIdx);
+          ev.dataTransfer.effectAllowed = 'move';
+          ev.target.classList.add('csv-th-dragging');
+        });
+        th.addEventListener('dragend', function(ev) {
+          ev.target.classList.remove('csv-th-dragging');
+          table.querySelectorAll('th.csv-th-drop-target').forEach(function(el) { el.classList.remove('csv-th-drop-target'); });
+        });
+        th.addEventListener('dragover', function(ev) {
+          ev.preventDefault();
+          ev.dataTransfer.dropEffect = 'move';
+          var idx = parseInt(ev.target.dataset.colIndex, 10);
+          if (idx !== dragSrcIdx) ev.target.classList.add('csv-th-drop-target');
+        });
+        th.addEventListener('dragleave', function(ev) {
+          ev.target.classList.remove('csv-th-drop-target');
+        });
+        th.addEventListener('drop', function(ev) {
+          ev.preventDefault();
+          ev.target.classList.remove('csv-th-drop-target');
+          var toIdx = parseInt(ev.target.dataset.colIndex, 10);
+          if (dragSrcIdx !== null && dragSrcIdx !== toIdx) swapColumns(table, dragSrcIdx, toIdx);
+          dragSrcIdx = null;
+        });
+      }
+      th.addEventListener('click', function(ev) {
+        if (ev.target.closest('.csv-header-menu')) return;
+        var idx = parseInt(ev.currentTarget.dataset.colIndex, 10);
+        showHeaderMenu(ev.currentTarget, idx);
+      });
       thr.appendChild(th);
     });
     thead.appendChild(thr);
@@ -99,7 +220,6 @@
         inp.type = 'text';
         var val = row[c] != null ? String(row[c]) : '';
         inp.value = val;
-        // 使用 CSS 控制定宽/自适应宽度，避免 size 导致视觉截断
         inp.dataset.col = c;
         td.appendChild(inp);
         tr.appendChild(td);

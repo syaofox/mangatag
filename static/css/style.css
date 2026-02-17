@@ -29,6 +29,14 @@ textarea { min-height: 120px; font-family: ui-monospace, monospace; font-size: 0
 .csv-table { border-collapse: collapse; font-size: 0.85rem; width: max-content; min-width: 100%; table-layout: auto; }
 .csv-table th, .csv-table td { border: 1px solid #ddd; padding: 0.25rem 0.4rem; text-align: left; white-space: nowrap; }
 .csv-table th { background: #f0f0f0; font-weight: 600; position: sticky; top: 0; }
+.csv-table th.csv-th-draggable { cursor: grab; }
+.csv-table th.csv-th-draggable:active { cursor: grabbing; }
+.csv-table th.csv-th-dragging { opacity: 0.6; }
+.csv-table th.csv-th-drop-target { background: #d0e8ff; outline: 2px solid #0066cc; }
+.csv-header-menu { display: none; position: fixed; z-index: 1100; background: #fff; border: 1px solid #ccc; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); padding: 0.25rem; min-width: 120px; }
+.csv-header-menu.open { display: flex; flex-direction: column; }
+.csv-header-menu button { display: block; width: 100%; padding: 0.4rem 0.75rem; text-align: left; border: none; background: none; cursor: pointer; font-size: 0.9rem; color: #333; border-radius: 2px; }
+.csv-header-menu button:hover { background: #e8f0fe; color: #0066cc; }
 /* 让单元格内文本输入占满单元格宽度，避免视觉截断；超出时通过容器横向滚动查看 */
 .csv-table td input { width: 100%; min-width: 8em; border: none; padding: 0.2rem; background: transparent; font: inherit; box-sizing: border-box; }
 .csv-table td input:focus { outline: 1px solid #0066cc; background: #fff; }

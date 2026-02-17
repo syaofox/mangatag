@@ -215,8 +215,16 @@
         var regexCb = document.getElementById('csv-fr-regex');
         var tableEl = document.getElementById('csv-data-table');
         var idx = parseInt(modal.dataset.colIdx, 10);
+        var findVal = findInput ? findInput.value : '';
+        var replaceVal = replaceInput ? replaceInput.value : '';
+        var regexVal = regexCb && regexCb.checked;
+        try {
+          localStorage.setItem('mangatag_fr_find', findVal);
+          localStorage.setItem('mangatag_fr_replace', replaceVal);
+          localStorage.setItem('mangatag_fr_regex', regexVal ? '1' : '0');
+        } catch (e) {}
         if (tableEl && !isNaN(idx)) {
-          findReplaceColumn(tableEl, idx, findInput ? findInput.value : '', replaceInput ? replaceInput.value : '', regexCb && regexCb.checked);
+          findReplaceColumn(tableEl, idx, findVal, replaceVal, regexVal);
         }
         hideFindReplaceModal();
       }
@@ -250,12 +258,24 @@
     modal.dataset.colIdx = colIdx;
     var findInput = document.getElementById('csv-fr-find');
     var replaceInput = document.getElementById('csv-fr-replace');
-    if (findInput) findInput.value = '';
-    if (replaceInput) replaceInput.value = '';
+    var regexCb = document.getElementById('csv-fr-regex');
+    try {
+      if (findInput) findInput.value = localStorage.getItem('mangatag_fr_find') || '';
+      if (replaceInput) replaceInput.value = localStorage.getItem('mangatag_fr_replace') || '';
+      if (regexCb) regexCb.checked = localStorage.getItem('mangatag_fr_regex') === '1';
+    } catch (e) {}
     modal.classList.add('open');
     if (findInput) setTimeout(function() { findInput.focus(); }, 50);
   }
   function hideFindReplaceModal() {
+    var findInput = document.getElementById('csv-fr-find');
+    var replaceInput = document.getElementById('csv-fr-replace');
+    var regexCb = document.getElementById('csv-fr-regex');
+    try {
+      if (findInput) localStorage.setItem('mangatag_fr_find', findInput.value || '');
+      if (replaceInput) localStorage.setItem('mangatag_fr_replace', replaceInput.value || '');
+      if (regexCb) localStorage.setItem('mangatag_fr_regex', regexCb.checked ? '1' : '0');
+    } catch (e) {}
     var modal = document.getElementById('csv-find-replace-modal');
     if (modal) modal.classList.remove('open');
   }

@@ -19,11 +19,11 @@ body { font-family: system-ui, sans-serif; background: #fff; color: #333; displa
 .log-panel-toggle:hover { color: #0066cc; background: rgba(0,102,204,0.1); }
 .log-panel-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .log-panel #unified-log { flex: 1; overflow-y: auto; min-height: 0; margin: 0 1rem 1rem; }
-h1 { font-size: 1.25rem; margin-bottom: 0.35rem; }
-.subtitle { color: #666; font-size: 0.9rem; margin-bottom: 0.6rem; }
+h1 { font-size: 1.25rem; margin-bottom: 0.25rem; }
+.subtitle { color: #666; font-size: 0.9rem; margin-bottom: 0.5rem; }
 label { display: block; margin-top: 0.4rem; margin-bottom: 0.15rem; color: #555; }
 input[type="text"], select, textarea { width: 100%; max-width: min(640px, 100%); background: #fff; border: 1px solid #ccc; border-radius: 4px; color: #333; box-sizing: border-box; }
-input[type="text"], select { padding: 0.4rem 0.5rem; }
+input[type="text"], select { padding: 0.35rem 0.5rem; }
 textarea { padding: 0.5rem; min-height: 120px; font-family: ui-monospace, monospace; font-size: 0.875rem; }
 #csv-area textarea { min-height: 280px; max-width: none; width: 100%; white-space: pre; overflow-x: auto; }
 .csv-table-container { overflow: auto; border: 1px solid #ddd; border-radius: 4px; margin-top: 0.25rem; }
@@ -49,7 +49,7 @@ textarea { padding: 0.5rem; min-height: 120px; font-family: ui-monospace, monosp
 .csv-table td.csv-row-handle:active { cursor: grabbing; }
 .csv-table tr.csv-row-dragging { opacity: 0.6; }
 .csv-table tr.csv-row-drop-target { background: #e8f4ff; }
-button, .btn { display: inline-block; padding: 0.5rem 1rem; background: #0066cc; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; margin-right: 0.4rem; margin-top: 0.25rem; }
+button, .btn { display: inline-block; padding: 0.4rem 0.85rem; background: #0066cc; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; margin-right: 0.35rem; margin-top: 0; }
 button:hover, .btn:hover { background: #0052a3; }
 button:disabled { opacity: 0.6; cursor: not-allowed; }
 .row { display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end; }
@@ -67,51 +67,56 @@ a.btn, a#export-btn { color: #fff; text-decoration: none; }
 /* 请求进行中禁用按钮，避免重复提交导致日志与操作错位 */
 #scan-btn.htmx-request { pointer-events: none; opacity: 0.7; }
 #save-form.saving #save-btn { pointer-events: none; opacity: 0.7; }
-.path-with-browse { display: flex; gap: 0.5rem; align-items: center; max-width: min(640px, 100%); width: 100%; }
+.path-with-browse { display: flex; gap: 0.4rem; align-items: center; max-width: min(640px, 100%); width: 100%; }
 .path-with-browse input { flex: 1; min-width: 0; }
 .path-with-browse .btn { flex-shrink: 0; margin-top: 0; }
-/* 布局体系 */
-.section { margin-bottom: 0.75rem; }
-.section-title { font-size: 0.9rem; font-weight: 600; color: #444; margin-bottom: 0.35rem; }
-.form-row { display: flex; gap: 0.5rem 0.75rem; flex-wrap: wrap; align-items: center; }
-.form-row .control-group { display: flex; align-items: center; gap: 0.5rem; }
-.form-row .control-group label { margin: 0; display: inline-flex; align-items: center; gap: 0.25rem; }
-.control-group { margin-bottom: 0.35rem; }
-.control-group label { margin-bottom: 0.15rem; }
+/* 布局体系：紧凑排布 */
+.section { margin-bottom: 0.5rem; }
+.section-title { font-size: 0.9rem; font-weight: 600; color: #444; margin-bottom: 0.25rem; }
+.form-row { display: flex; gap: 0.4rem 0.6rem; flex-wrap: wrap; align-items: center; }
+.form-row .control-group { display: flex; align-items: center; gap: 0.4rem; }
+.form-row .control-group label { margin: 0; display: inline-flex; align-items: center; gap: 0.2rem; }
+.control-group { margin-bottom: 0; }
+.control-group label { margin-bottom: 0; }
 
-/* 目录选择：网格排布，宽度自适应 */
+/* 目录选择：标签固定宽度对齐，紧凑行距 */
 .dir-section .dir-form-grid { font-size: 0.9rem; }
 .dir-section .dir-form-grid label,
 .dir-section .dir-form-grid input,
 .dir-section .dir-form-grid select,
 .dir-section .dir-form-grid button,
 .dir-section .dir-form-grid .btn { font-size: inherit; }
-.dir-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 0.5rem 1rem; }
+.dir-form-grid { display: flex; flex-direction: column; gap: 0.35rem; }
 .dir-path-group,
 .dir-select-group,
-.dir-edit-group { grid-column: 1 / -1; display: flex; align-items: center; gap: 0.5rem; }
+.dir-edit-group { display: flex; align-items: center; gap: 0.5rem; min-height: 1.75rem; }
 .dir-path-group > label,
 .dir-select-group > label,
-.dir-edit-group > label { flex-shrink: 0; margin: 0; white-space: nowrap; }
-.dir-path-group .path-with-browse { flex: 1; min-width: 0; }
-.dir-select-group .dir-list-row { flex: 1; min-width: 0; }
-.dir-list-row { flex: 1; min-width: 0; }
-.dir-list-row .dir-list-input { flex: 1; min-width: 12rem; max-width: 100%; }
-.dir-edit-group input { flex: 1; min-width: 0; max-width: none; }
+.dir-edit-group > label { flex-shrink: 0; margin: 0; white-space: nowrap; width: 7em; text-align: right; color: #555; }
+.dir-path-group .path-with-browse { flex: 1; min-width: 0; max-width: min(560px, 100%); }
+.dir-select-group .dir-list-row { flex: 1; min-width: 0; max-width: min(560px, 100%); }
+.dir-list-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.4rem; }
+.dir-list-row .dir-list-input { flex: 1; min-width: 10rem; }
+.dir-list-row .btn { flex-shrink: 0; margin: 0; }
+.dir-edit-group input { flex: 1; min-width: 0; max-width: min(560px, 100%); }
 
-/* 扫描选项：横向排布，自适应 */
-.scan-options-row { flex-wrap: wrap; gap: 0.5rem 0.75rem; }
-.scan-option-item { display: inline-flex; align-items: center; gap: 0.5rem; margin: 0; }
+/* 扫描选项：横向紧凑排布 */
+.scan-options-row { flex-wrap: wrap; gap: 0.4rem 0.6rem; }
+.scan-option-item { display: inline-flex; align-items: center; gap: 0.35rem; margin: 0; }
 .scan-option-item label { margin: 0; }
-.sort-select { max-width: min(180px, 100%); }
+.sort-select { max-width: min(160px, 100%); }
 
-/* 下载/导入：与目录选择一致的字号与样式 */
+/* 下载/导入：紧凑横向排布 */
 .import-export-section { font-size: 0.9rem; }
 .import-export-section .section-title,
 .import-export-section label,
 .import-export-section button,
 .import-export-section .btn,
 .import-export-section input { font-size: inherit; }
+.import-export-section .form-row { gap: 0.5rem 0.75rem; }
+.import-export-section #export-form,
+.import-export-section #import-form { display: inline-flex; align-items: center; gap: 0.35rem; margin: 0; }
+.import-export-section #import-form input[type="file"] { max-width: 12rem; padding: 0.2rem; font-size: 0.85rem; }
 
 /* 批量编辑输入框：弹性宽度 */
 .batch-input { max-width: min(200px, 100%); flex: 1; min-width: 6rem; }
@@ -121,7 +126,9 @@ a.btn, a#export-btn { color: #fff; text-decoration: none; }
 .batch-group { margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid #e8e8e8; }
 .batch-group:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
 .batch-group-title { font-size: 0.85rem; color: #555; margin-bottom: 0.5rem; }
-.save-section { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; }
+.save-section { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.6rem; }
+.save-section label { margin: 0; }
+.save-section #save-form { display: inline-flex; align-items: center; }
 .btn-primary { background: #0066cc; font-weight: 500; }
 .btn-primary:hover { background: #0052a3; }
 #browse-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 1000; align-items: center; justify-content: center; }

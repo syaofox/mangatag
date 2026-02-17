@@ -199,13 +199,19 @@
   </div>
   </div>
 
-  <aside class="log-panel">
-    <h2 class="section-title">日志</h2>
-    <div id="unified-log" class="log">{% if scan_log %}{{ scan_log }}{% endif %}{% if save_log %}
+  <aside class="log-panel" id="log-panel">
+    <div class="log-panel-resize-handle" id="log-resize-handle" title="拖动调节宽度"></div>
+    <div class="log-panel-header">
+      <h2 class="section-title">日志</h2>
+      <button type="button" class="log-panel-toggle" id="log-panel-toggle" title="收起/展开">◀</button>
+    </div>
+    <div class="log-panel-body">
+      <div id="unified-log" class="log">{% if scan_log %}{{ scan_log }}{% endif %}{% if save_log %}
 
 --- 保存 ---
 
 {{ save_log }}{% endif %}</div>
+    </div>
   </aside>
 
   <script>
@@ -543,6 +549,70 @@
           if (saveIndicator) saveIndicator.style.display = 'none';
         });
     });
+
+    // 日志栏：收起/展开、调节宽度
+    (function() {
+      var panel = document.getElementById('log-panel');
+      var toggleBtn = document.getElementById('log-panel-toggle');
+      var resizeHandle = document.getElementById('log-resize-handle');
+      if (!panel || !toggleBtn || !resizeHandle) return;
+
+      var STORAGE_KEY = 'mangatag_log_panel';
+      var DEFAULT_WIDTH = 320;
+      var MIN_WIDTH = 200;
+      var MAX_WIDTH_PX = Math.min(800, window.innerWidth * 0.8);
+
+      function loadState() {
+        try {
+          var s = localStorage.getItem(STORAGE_KEY);
+          if (s) {
+            var d = JSON.parse(s);
+            if (d.collapsed) panel.classList.add('collapsed');
+            if (typeof d.width === 'number' && d.width >= MIN_WIDTH) {
+              panel.style.setProperty('--log-panel-width', d.width + 'px');
+            }
+          }
+        } catch (e) {}
+      }
+      function saveState() {
+        try {
+          var collapsed = panel.classList.contains('collapsed');
+          var w = parseInt(getComputedStyle(panel).width, 10) || DEFAULT_WIDTH;
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ collapsed: collapsed, width: w }));
+        } catch (e) {}
+      }
+
+      toggleBtn.addEventListener('click', function() {
+        panel.classList.toggle('collapsed');
+        saveState();
+      });
+
+      var startX, startW;
+      resizeHandle.addEventListener('mousedown', function(e) {
+        if (panel.classList.contains('collapsed')) return;
+        e.preventDefault();
+        startX = e.clientX;
+        startW = panel.offsetWidth;
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+        function onMove(e) {
+          var dx = e.clientX - startX;
+          var newW = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH_PX, startW - dx));
+          panel.style.setProperty('--log-panel-width', newW + 'px');
+        }
+        function onUp() {
+          document.removeEventListener('mousemove', onMove);
+          document.removeEventListener('mouseup', onUp);
+          document.body.style.cursor = '';
+          document.body.style.userSelect = '';
+          saveState();
+        }
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+      });
+
+      loadState();
+    })();
   </script>
 </body>
 </html>

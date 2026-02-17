@@ -146,6 +146,10 @@
             <option value="skip">跳过并报告</option>
           </select>
         </div>
+        <div class="batch-rename-preview-row">
+          <button type="button" id="batch-rename-preview-btn" class="btn batch-rename-preview-btn">预览</button>
+          <span id="batch-rename-preview-hint" class="batch-rename-preview-hint">点击预览查看改名前后对比</span>
+        </div>
         <div id="batch-rename-preview" class="batch-rename-preview"></div>
       </div>
       <div class="csv-fr-actions">
@@ -595,8 +599,69 @@
         buildPlaceholderList();
         if (placeholderPopover) placeholderPopover.classList.remove('open');
         modal.classList.add('open');
-        document.getElementById('batch-rename-preview').textContent = '（填写规则后点击确定执行）';
+        document.getElementById('batch-rename-preview').innerHTML = '';
       });
+
+      var previewBtn = document.getElementById('batch-rename-preview-btn');
+      var previewEl = document.getElementById('batch-rename-preview');
+      if (previewBtn && previewEl) {
+        previewBtn.addEventListener('click', function() {
+          if (window.csvEditor && window.csvEditor.sync) window.csvEditor.sync();
+          var ruleEl = document.getElementById('batch-rename-rule');
+          var rule = ruleEl ? ruleEl.value.trim() : '';
+          if (!rule) {
+            previewEl.innerHTML = '<span class="batch-rename-preview-err">请输入命名规则</span>';
+            return;
+          }
+          var csvEl = document.getElementById('csv_text');
+          var includeCb = document.getElementById('include_header');
+          var tokenEl = document.getElementById('scan_token');
+          var wsEnableEl = document.getElementById('batch-rename-ws-enable');
+          var wsCharEl = document.getElementById('batch-rename-ws-char');
+          var conflictEl = document.getElementById('batch-rename-conflict');
+          var payload = {
+            csv_text: csvEl ? csvEl.value : '',
+            include_header: includeCb && includeCb.checked ? 'true' : 'false',
+            scan_token: tokenEl ? tokenEl.value : '',
+            rule: rule,
+            ws_replace_enabled: wsEnableEl && wsEnableEl.checked,
+            ws_replace_char: wsCharEl ? (wsCharEl.value || '_') : '_',
+            conflict_mode: conflictEl ? conflictEl.value : 'suffix'
+          };
+          previewEl.innerHTML = '<span class="batch-rename-preview-loading">预览中…</span>';
+          previewBtn.disabled = true;
+          fetch('/batch-rename-preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          })
+            .then(function(res) { return res.json(); })
+            .then(function(data) {
+              if (data && data.ok && data.preview && data.preview.length > 0) {
+                var html = '<table class="batch-rename-preview-table"><thead><tr><th>原文件名</th><th>→</th><th>新文件名</th></tr></thead><tbody>';
+                data.preview.forEach(function(p) {
+                  html += '<tr><td>' + escapeHtml(p[0]) + '</td><td>→</td><td>' + escapeHtml(p[1]) + '</td></tr>';
+                });
+                html += '</tbody></table><div class="batch-rename-preview-count">共 ' + data.preview.length + ' 个文件</div>';
+                previewEl.innerHTML = html;
+              } else if (data && data.ok && data.preview && data.preview.length === 0) {
+                previewEl.innerHTML = '<span class="batch-rename-preview-err">无匹配项</span>';
+              } else {
+                previewEl.innerHTML = '<span class="batch-rename-preview-err">' + escapeHtml(data.error || '预览失败') + '</span>';
+              }
+            })
+            .catch(function(err) {
+              previewEl.innerHTML = '<span class="batch-rename-preview-err">请求失败: ' + escapeHtml(err && err.message || '未知错误') + '</span>';
+            })
+            .finally(function() {
+              previewBtn.disabled = false;
+            });
+        });
+      }
+      function escapeHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      }
 
       modal.addEventListener('click', function(e) {
         if (e.target === modal) modal.classList.remove('open');
@@ -606,6 +671,7 @@
       });
 
       document.querySelector('.batch-rename-confirm').addEventListener('click', function() {
+        if (window.csvEditor && window.csvEditor.sync) window.csvEditor.sync();
         var ruleEl = document.getElementById('batch-rename-rule');
         var rule = ruleEl ? ruleEl.value.trim() : '';
         if (!rule) {

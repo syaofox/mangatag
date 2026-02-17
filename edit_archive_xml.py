@@ -877,6 +877,87 @@ def _sanitize_filename(name: str, ws_replace_char: str) -> str:
     return s
 
 
+def preview_rename_by_rule(
+    archives: list[str],
+    csv_text: str,
+    include_header: bool,
+    rule: str,
+    ws_replace_char: str = "_",
+    conflict_mode: str = "suffix",
+) -> tuple[list[tuple[str, str]], str]:
+    """
+    预览批量改名结果，不执行实际重命名。
+    返回 ([(old_name, new_name), ...], error_message)。
+    成功时 error_message 为空；失败时列表可为空。
+    """
+    if not rule or not rule.strip():
+        return ([], "错误：规则不能为空")
+    if not archives:
+        return ([], "错误：请先扫描目录")
+
+    reader = csv.reader(io.StringIO(csv_text or ""))
+    rows = list(reader)
+    if not rows:
+        return ([], "错误：CSV 为空")
+
+    header = [c.strip() for c in rows[0]]
+    if include_header and header and header[:1] == ["FileName"]:
+        data_rows = rows[1:]
+        name_to_idx = {name: idx for idx, name in enumerate(header)}
+    else:
+        data_rows = rows
+        header = CSV_HEADERS
+        name_to_idx = {name: idx for idx, name in enumerate(header)}
+
+    row_map: dict[str, list[str]] = {}
+    for r in data_rows:
+        if not r:
+            continue
+        fn = (r[0] if len(r) > 0 else "").strip()
+        if not fn:
+            continue
+        row_map[fn] = r
+
+    processed: list[tuple[str, list[str]]] = []
+    for ap in archives:
+        name = os.path.basename(ap)
+        row = row_map.get(name)
+        if row is None:
+            continue
+        processed.append((ap, row))
+
+    if not processed:
+        return ([], "错误：无匹配的 CSV 行")
+
+    result: list[tuple[str, str]] = []
+    used_names: set[str] = set()
+
+    for ap, row in processed:
+        old_name = os.path.basename(ap)
+        ext = os.path.splitext(old_name)[1] or ".cbz"
+        base = _replace_placeholders(rule, row, header, name_to_idx)
+        base = _sanitize_filename(base, ws_replace_char)
+        if not base:
+            base = old_name
+        new_basename = base + ext
+
+        if conflict_mode == "suffix":
+            candidate = new_basename
+            suffix = 2
+            while candidate in used_names:
+                stem, ext_part = os.path.splitext(new_basename)
+                candidate = f"{stem} ({suffix}){ext_part}"
+                suffix += 1
+            new_basename = candidate
+        elif new_basename in used_names:
+            continue
+
+        used_names.add(new_basename)
+        result.append((old_name, new_basename))
+
+    return (result, "")
+
+
 def rename_archives_by_rule(
     archives: list[str],
     comic_dir: str,

@@ -186,7 +186,17 @@ a.btn, a#export-btn { color: #fff; text-decoration: none; }
 .batch-rename-ws-row input { max-width: 4rem; }
 .batch-rename-conflict-row { display: flex; align-items: center; gap: 0.5rem; }
 .batch-rename-conflict-row select { max-width: 220px; }
-.batch-rename-preview { font-size: 0.85rem; color: #666; background: #f5f5f5; padding: 0.5rem; border-radius: 4px; max-height: 120px; overflow-y: auto; white-space: pre-wrap; }
+.batch-rename-preview-row { display: flex; align-items: center; gap: 0.5rem; }
+.batch-rename-preview-btn { font-size: 0.9rem; }
+.batch-rename-preview-hint { font-size: 0.85rem; color: #666; }
+.batch-rename-preview { font-size: 0.85rem; color: #666; background: #f5f5f5; padding: 0.5rem; border-radius: 4px; max-height: 200px; overflow-y: auto; }
+.batch-rename-preview-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.batch-rename-preview-table th, .batch-rename-preview-table td { padding: 0.25rem 0.5rem; text-align: left; border-bottom: 1px solid #e0e0e0; }
+.batch-rename-preview-table th { background: #eee; font-weight: 600; }
+.batch-rename-preview-table td:nth-child(2) { text-align: center; color: #0066cc; width: 2em; }
+.batch-rename-preview-count { margin-top: 0.35rem; font-size: 0.8rem; color: #888; }
+.batch-rename-preview-loading { color: #666; }
+.batch-rename-preview-err { color: #c00; }
 
 /* 窄屏自适应 */
 @media (max-width: 768px) {

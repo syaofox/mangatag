@@ -1,5 +1,5 @@
 # ========== 构建阶段：安装依赖到 .venv ==========
-FROM python:3.12-slim AS builder
+FROM python:3.13-slim AS builder
 
 WORKDIR /app
 
@@ -25,7 +25,7 @@ USER app
 RUN uv sync --frozen --no-dev
 
 # ========== 运行阶段：最小镜像 ==========
-FROM python:3.12-slim AS runtime
+FROM python:3.13-slim AS runtime
 
 RUN groupadd --gid 1000 app \
     && useradd --uid 1000 --gid app --shell /bin/bash --create-home app

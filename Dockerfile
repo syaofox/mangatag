@@ -3,6 +3,10 @@ FROM python:3.12-slim AS builder
 
 WORKDIR /app
 
+# 创建 UID 1000 非 root 用户，避免构建产物权限问题
+RUN groupadd --gid 1000 app \
+    && useradd --uid 1000 --gid app --shell /bin/bash --create-home app
+
 # 安装 uv（仅构建阶段使用，不进入最终镜像）
 RUN pip install --no-cache-dir uv
 
@@ -13,7 +17,11 @@ COPY app.py edit_archive_xml.py update_archives_with_xml.py ./
 COPY templates/ ./templates/
 COPY static/ ./static/
 
-# 锁定依赖安装，不装开发包
+# 将 /app 归属给 app 用户，后续以非 root 执行 uv sync
+RUN chown -R app:app /app
+USER app
+
+# 锁定依赖安装，不装开发包（以非 root 运行）
 RUN uv sync --frozen --no-dev
 
 # ========== 运行阶段：最小镜像 ==========

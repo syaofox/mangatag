@@ -121,7 +121,16 @@
     <div class="csv-fr-dialog batch-rename-dialog">
       <h3>批量改名</h3>
       <div class="batch-rename-form">
-        <label for="batch-rename-rule">命名规则（占位符：<code>{列名}</code> 或 <code>{列名:N}</code> 补零，如 <code>{Number:3}</code>）</label>
+        <div class="batch-rename-rule-wrap">
+          <div class="batch-rename-rule-row">
+            <label for="batch-rename-rule">命名规则</label>
+            <button type="button" id="batch-rename-placeholder-btn" class="btn batch-rename-placeholder-btn" title="插入占位符">插入占位符 ▼</button>
+          </div>
+          <div id="batch-rename-placeholder-popover" class="batch-rename-placeholder-popover">
+          <div class="batch-rename-placeholder-hint">点击插入到规则中，<code>{列名:N}</code> 可补零</div>
+          <div id="batch-rename-placeholder-list" class="batch-rename-placeholder-list"></div>
+          </div>
+        </div>
         <input type="text" id="batch-rename-rule" placeholder="{Series} - {Number:3} - {Title}" />
         <label class="batch-rename-opt">
           <input type="checkbox" id="batch-rename-ws-enable" checked /> 启用空白替换
@@ -475,6 +484,106 @@
         } catch (e) {}
       }
 
+      var PLACEHOLDER_DESCRIPTIONS = {
+        'FileName': '原文件名',
+        'Title': '标题',
+        'Series': '系列名称',
+        'Number': '期号',
+        'Summary': '摘要',
+        'Writer': '作者',
+        'Genre': '类型',
+        'Web': '网址',
+        'PublishingStatusTachiyomi': '出版状态',
+        'SourceMihon': '来源',
+        'PublicationYear': '出版年',
+        'PublicationMonth': '出版月'
+      };
+      var NUMBER_COLS = ['Number', 'PublicationYear', 'PublicationMonth'];
+
+      function getHeadersFromTable() {
+        var ths = document.querySelectorAll('#csv-data-table thead th');
+        if (!ths || ths.length === 0) return null;
+        var h = [];
+        for (var i = 0; i < ths.length; i++) h.push((ths[i].textContent || '').trim());
+        return h;
+      }
+
+      function buildPlaceholderList() {
+        var headers = getHeadersFromTable();
+        if (!headers || headers.length === 0) {
+          headers = ['FileName', 'Title', 'Series', 'Number', 'Summary', 'Writer', 'Genre', 'Web', 'PublishingStatusTachiyomi', 'SourceMihon', 'PublicationYear', 'PublicationMonth'];
+        }
+        var listEl = document.getElementById('batch-rename-placeholder-list');
+        var popover = document.getElementById('batch-rename-placeholder-popover');
+        if (!listEl || !popover) return;
+        listEl.innerHTML = '';
+        headers.forEach(function(name) {
+          if (!name) return;
+          var desc = PLACEHOLDER_DESCRIPTIONS[name] || name;
+          var item = document.createElement('div');
+          item.className = 'batch-rename-placeholder-item';
+          var simple = document.createElement('button');
+          simple.type = 'button';
+          simple.className = 'batch-rename-placeholder-tag';
+          simple.textContent = '{' + name + '}';
+          simple.title = desc + ' - 点击插入';
+          simple.dataset.placeholder = '{' + name + '}';
+          simple.addEventListener('click', function() {
+            insertPlaceholder(this.dataset.placeholder);
+          });
+          item.appendChild(simple);
+          if (NUMBER_COLS.indexOf(name) >= 0) {
+            var withNum = document.createElement('button');
+            withNum.type = 'button';
+            withNum.className = 'batch-rename-placeholder-tag batch-rename-placeholder-tag-num';
+            withNum.textContent = '{' + name + ':N}';
+            withNum.title = desc + ' 补零 - 点击插入';
+            withNum.dataset.placeholder = '{' + name + ':3}';
+            withNum.addEventListener('click', function() {
+              insertPlaceholder(this.dataset.placeholder);
+            });
+            item.appendChild(withNum);
+          }
+          var span = document.createElement('span');
+          span.className = 'batch-rename-placeholder-desc';
+          span.textContent = desc;
+          item.appendChild(span);
+          listEl.appendChild(item);
+        });
+      }
+
+      function insertPlaceholder(text) {
+        var ruleEl = document.getElementById('batch-rename-rule');
+        if (!ruleEl) return;
+        var start = ruleEl.selectionStart || 0;
+        var end = ruleEl.selectionEnd || ruleEl.value.length;
+        var val = ruleEl.value;
+        ruleEl.value = val.slice(0, start) + text + val.slice(end);
+        ruleEl.selectionStart = ruleEl.selectionEnd = start + text.length;
+        ruleEl.focus();
+        if (placeholderPopover) placeholderPopover.classList.remove('open');
+      }
+
+      var placeholderBtn = document.getElementById('batch-rename-placeholder-btn');
+      var placeholderPopover = document.getElementById('batch-rename-placeholder-popover');
+      if (placeholderBtn && placeholderPopover) {
+        placeholderBtn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var isOpen = placeholderPopover.classList.contains('open');
+          if (isOpen) {
+            placeholderPopover.classList.remove('open');
+          } else {
+            buildPlaceholderList();
+            placeholderPopover.classList.add('open');
+          }
+        });
+        document.addEventListener('click', function(e) {
+          if (!placeholderPopover.contains(e.target) && e.target !== placeholderBtn) {
+            placeholderPopover.classList.remove('open');
+          }
+        });
+      }
+
       btn.addEventListener('click', function() {
         if (window.csvEditor && window.csvEditor.sync) window.csvEditor.sync();
         var tokenEl = document.getElementById('scan_token');
@@ -483,6 +592,8 @@
           return;
         }
         loadOptions();
+        buildPlaceholderList();
+        if (placeholderPopover) placeholderPopover.classList.remove('open');
         modal.classList.add('open');
         document.getElementById('batch-rename-preview').textContent = '（填写规则后点击确定执行）';
       });

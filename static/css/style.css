@@ -166,6 +166,21 @@ a.btn, a#export-btn { color: #fff; text-decoration: none; }
 .batch-rename-form { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem; }
 .batch-rename-form label { font-size: 0.9rem; color: #555; }
 .batch-rename-form input[type="text"] { padding: 0.5rem; }
+.batch-rename-rule-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.batch-rename-rule-row label { margin: 0; }
+.batch-rename-placeholder-btn { font-size: 0.85rem; padding: 0.25rem 0.5rem; }
+.batch-rename-rule-wrap { position: relative; }
+.batch-rename-placeholder-popover { display: none; position: absolute; top: 100%; right: 0; margin-top: 0.25rem; z-index: 1200; background: #fff; border: 1px solid #ccc; border-radius: 6px; padding: 0.5rem; box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-width: 360px; max-height: 280px; overflow-y: auto; }
+.batch-rename-placeholder-popover.open { display: block; }
+.batch-rename-placeholder-hint { font-size: 0.8rem; color: #666; margin-bottom: 0.5rem; }
+.batch-rename-placeholder-hint code { background: #f0f0f0; padding: 0.1rem 0.25rem; border-radius: 3px; font-size: 0.9em; }
+.batch-rename-placeholder-list { display: flex; flex-direction: column; gap: 0.35rem; }
+.batch-rename-placeholder-item { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.batch-rename-placeholder-tag { padding: 0.2rem 0.4rem; font-size: 0.85rem; background: #e8f0fe; color: #0066cc; border: 1px solid #a8c7fa; border-radius: 4px; cursor: pointer; font-family: ui-monospace, monospace; }
+.batch-rename-placeholder-tag:hover { background: #d0e4ff; }
+.batch-rename-placeholder-tag-num { background: #e8f5e9; color: #2e7d32; border-color: #a5d6a7; }
+.batch-rename-placeholder-tag-num:hover { background: #c8e6c9; }
+.batch-rename-placeholder-desc { font-size: 0.85rem; color: #666; }
 .batch-rename-opt { display: flex; align-items: center; gap: 0.4rem; font-weight: normal; cursor: pointer; }
 .batch-rename-ws-row { display: flex; align-items: center; gap: 0.5rem; }
 .batch-rename-ws-row input { max-width: 4rem; }

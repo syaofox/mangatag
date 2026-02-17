@@ -40,6 +40,12 @@ textarea { min-height: 120px; font-family: ui-monospace, monospace; font-size: 0
 /* 让单元格内文本输入占满单元格宽度，避免视觉截断；超出时通过容器横向滚动查看 */
 .csv-table td input { width: 100%; min-width: 8em; border: none; padding: 0.2rem; background: transparent; font: inherit; box-sizing: border-box; }
 .csv-table td input:focus { outline: 1px solid #0066cc; background: #fff; }
+.csv-table td input.csv-cell-filename { background: #f5f5f5; cursor: grab; }
+.csv-table td input.csv-cell-filename:focus { cursor: grabbing; }
+.csv-table td.csv-row-handle { cursor: grab; }
+.csv-table td.csv-row-handle:active { cursor: grabbing; }
+.csv-table tr.csv-row-dragging { opacity: 0.6; }
+.csv-table tr.csv-row-drop-target { background: #e8f4ff; }
 button, .btn { display: inline-block; padding: 0.5rem 1rem; background: #0066cc; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; margin-right: 0.5rem; margin-top: 0.5rem; }
 button:hover, .btn:hover { background: #0052a3; }
 button:disabled { opacity: 0.6; cursor: not-allowed; }

@@ -61,6 +61,15 @@
     }
     return rows.map(function(r) { return r.map(escape).join(','); }).join('\n');
   }
+  function moveRow(table, fromIdx, toIdx) {
+    if (fromIdx === toIdx) return;
+    var tbody = table.querySelector('tbody');
+    var trs = tbody.querySelectorAll('tr');
+    var tr = trs[fromIdx];
+    var ref = toIdx < fromIdx ? trs[toIdx] : (trs[toIdx].nextSibling || null);
+    tbody.insertBefore(tr, ref);
+    sync();
+  }
   function swapColumns(table, fromIdx, toIdx) {
     if (fromIdx === toIdx) return;
     var thr = table.querySelector('thead tr');
@@ -212,7 +221,8 @@
     table.appendChild(thead);
     var tbody = document.createElement('tbody');
     var colCount = headers.length;
-    dataRows.forEach(function(row) {
+    var rowDragSrcIdx = null;
+    dataRows.forEach(function(row, rowIdx) {
       var tr = document.createElement('tr');
       for (var c = 0; c < colCount; c++) {
         var td = document.createElement('td');
@@ -221,6 +231,41 @@
         var val = row[c] != null ? String(row[c]) : '';
         inp.value = val;
         inp.dataset.col = c;
+        if (c === 0) {
+          inp.readOnly = true;
+          inp.classList.add('csv-cell-filename');
+          td.draggable = true;
+          td.classList.add('csv-row-handle');
+          td.addEventListener('dragstart', function(ev) {
+            var trEl = ev.target.closest('tr');
+            rowDragSrcIdx = Array.prototype.indexOf.call(tbody.querySelectorAll('tr'), trEl);
+            ev.dataTransfer.setData('text/plain', rowDragSrcIdx);
+            ev.dataTransfer.effectAllowed = 'move';
+            ev.target.closest('tr').classList.add('csv-row-dragging');
+          });
+          td.addEventListener('dragend', function(ev) {
+            ev.target.closest('tr').classList.remove('csv-row-dragging');
+            table.querySelectorAll('tr.csv-row-drop-target').forEach(function(el) { el.classList.remove('csv-row-drop-target'); });
+          });
+          td.addEventListener('dragover', function(ev) {
+            ev.preventDefault();
+            ev.dataTransfer.dropEffect = 'move';
+            var trEl = ev.target.closest('tr');
+            var toIdx = Array.prototype.indexOf.call(tbody.querySelectorAll('tr'), trEl);
+            if (toIdx !== rowDragSrcIdx) trEl.classList.add('csv-row-drop-target');
+          });
+          td.addEventListener('dragleave', function(ev) {
+            ev.target.closest('tr').classList.remove('csv-row-drop-target');
+          });
+          td.addEventListener('drop', function(ev) {
+            ev.preventDefault();
+            var trEl = ev.target.closest('tr');
+            var toIdx = Array.prototype.indexOf.call(tbody.querySelectorAll('tr'), trEl);
+            trEl.classList.remove('csv-row-drop-target');
+            if (rowDragSrcIdx !== null && rowDragSrcIdx !== toIdx) moveRow(table, rowDragSrcIdx, toIdx);
+            rowDragSrcIdx = null;
+          });
+        }
         td.appendChild(inp);
         tr.appendChild(td);
       }

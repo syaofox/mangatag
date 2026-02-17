@@ -115,6 +115,15 @@ a.btn, a#export-btn { color: #fff; text-decoration: none; }
 #browse-modal .folder-item.parent::before { content: "⬆ "; }
 #browse-modal .actions { margin-top: 1rem; display: flex; gap: 0.5rem; justify-content: flex-end; }
 
+.csv-find-replace-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 1100; align-items: center; justify-content: center; }
+.csv-find-replace-modal.open { display: flex; }
+.csv-find-replace-modal .csv-fr-dialog { background: #fff; border-radius: 8px; padding: 1.25rem; min-width: 360px; max-width: 90vw; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+.csv-find-replace-modal .csv-fr-dialog h3 { margin: 0 0 1rem; font-size: 1rem; }
+.csv-find-replace-modal .csv-fr-form { display: flex; flex-direction: column; gap: 0.75rem; }
+.csv-find-replace-modal .csv-fr-form label { font-size: 0.9rem; color: #555; }
+.csv-find-replace-modal .csv-fr-form input { padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; font-size: 0.95rem; }
+.csv-find-replace-modal .csv-fr-actions { margin-top: 1rem; display: flex; gap: 0.5rem; justify-content: flex-end; }
+
 /* 窄屏自适应 */
 @media (max-width: 768px) {
   .main-content { padding: 1rem; }

@@ -135,6 +135,79 @@
       })
       .catch(function(err) { console.error('繁简转换失败:', err); });
   }
+  function findReplaceColumn(table, colIdx, findText, replaceText) {
+    var ths = table.querySelectorAll('thead th');
+    var th = ths[colIdx];
+    if (!th) return;
+    var headerName = (th.textContent || '').trim();
+    if (!headerName || headerName === 'FileName') return;
+    sync();
+    var csvEl = document.getElementById('csv_text');
+    var includeCb = document.getElementById('include_header');
+    var csvText = csvEl ? csvEl.value : '';
+    var includeHeader = includeCb && includeCb.checked;
+    var formData = new FormData();
+    formData.append('csv_text', csvText);
+    formData.append('include_header', includeHeader ? 'true' : 'false');
+    formData.append('columns', headerName);
+    formData.append('fr_find', findText || '');
+    formData.append('fr_replace', replaceText || '');
+    formData.append('action', 'find_replace');
+    fetch('/batch-edit', { method: 'POST', body: formData })
+      .then(function(r) { return r.text(); })
+      .then(function(html) {
+        var parser = new DOMParser();
+        var doc = parser.parseFromString(html, 'text/html');
+        var newArea = doc.getElementById('csv-area');
+        if (newArea && document.getElementById('csv-area')) {
+          document.getElementById('csv-area').outerHTML = newArea.outerHTML;
+          if (typeof maybeRenderCsvTable === 'function') maybeRenderCsvTable();
+        }
+      })
+      .catch(function(err) { console.error('查找替换失败:', err); });
+  }
+  function showFindReplaceModal(table, colIdx) {
+    var modal = document.getElementById('csv-find-replace-modal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'csv-find-replace-modal';
+      modal.className = 'csv-find-replace-modal';
+      modal.setAttribute('role', 'dialog');
+      modal.setAttribute('aria-label', '查找替换');
+      modal.innerHTML = '<div class="csv-fr-dialog"><h3>查找替换（本列）</h3><div class="csv-fr-form"><label for="csv-fr-find">查找</label><input type="text" id="csv-fr-find" placeholder="查找内容" /><label for="csv-fr-replace">替换为</label><input type="text" id="csv-fr-replace" placeholder="替换为" /></div><div class="csv-fr-actions"><button type="button" class="btn csv-fr-cancel" style="background:#666;">取消</button><button type="button" class="btn csv-fr-confirm">确定</button></div></div>';
+      document.body.appendChild(modal);
+      modal.addEventListener('click', function(ev) {
+        if (ev.target === modal) hideFindReplaceModal();
+      });
+      modal.querySelector('.csv-fr-cancel').addEventListener('click', hideFindReplaceModal);
+      modal.querySelector('.csv-fr-confirm').addEventListener('click', doFindReplace);
+      modal.addEventListener('keydown', function(ev) {
+        if (ev.key === 'Escape') hideFindReplaceModal();
+        else if (ev.key === 'Enter') doFindReplace();
+      });
+      function doFindReplace() {
+        var findInput = document.getElementById('csv-fr-find');
+        var replaceInput = document.getElementById('csv-fr-replace');
+        var tableEl = document.getElementById('csv-data-table');
+        var idx = parseInt(modal.dataset.colIdx, 10);
+        if (tableEl && !isNaN(idx)) {
+          findReplaceColumn(tableEl, idx, findInput ? findInput.value : '', replaceInput ? replaceInput.value : '');
+        }
+        hideFindReplaceModal();
+      }
+    }
+    modal.dataset.colIdx = colIdx;
+    var findInput = document.getElementById('csv-fr-find');
+    var replaceInput = document.getElementById('csv-fr-replace');
+    if (findInput) findInput.value = '';
+    if (replaceInput) replaceInput.value = '';
+    modal.classList.add('open');
+    if (findInput) setTimeout(function() { findInput.focus(); }, 50);
+  }
+  function hideFindReplaceModal() {
+    var modal = document.getElementById('csv-find-replace-modal');
+    if (modal) modal.classList.remove('open');
+  }
   function fillColumnWithFirst(table, colIdx) {
     var trs = table.querySelectorAll('tbody tr');
     if (trs.length === 0) return;
@@ -167,7 +240,7 @@
       menu = document.createElement('div');
       menu.id = 'csv-header-menu';
       menu.className = 'csv-header-menu';
-      menu.innerHTML = '<button type="button" data-action="sort-asc">排序升序</button><button type="button" data-action="sort-desc">排序降序</button><button type="button" data-action="seq">序号累加</button><button type="button" data-action="fill">填充</button><span class="csv-header-menu-divider" id="csv-header-convert-divider"></span><button type="button" data-action="t2s">转为简体</button><button type="button" data-action="s2t">转为繁体</button>';
+      menu.innerHTML = '<button type="button" data-action="sort-asc">排序升序</button><button type="button" data-action="sort-desc">排序降序</button><button type="button" data-action="seq">序号累加</button><button type="button" data-action="fill">填充</button><button type="button" data-action="find-replace">查找替换</button><span class="csv-header-menu-divider" id="csv-header-convert-divider"></span><button type="button" data-action="t2s">转为简体</button><button type="button" data-action="s2t">转为繁体</button>';
       document.body.appendChild(menu);
       menu.addEventListener('click', function(ev) {
         var btn = ev.target.closest('button[data-action]');
@@ -179,6 +252,7 @@
         else if (btn.dataset.action === 'sort-desc') sortColumn(table, idx, false);
         else if (btn.dataset.action === 'seq') fillColumnSequential(table, idx);
         else if (btn.dataset.action === 'fill') fillColumnWithFirst(table, idx);
+        else if (btn.dataset.action === 'find-replace') showFindReplaceModal(table, idx);
         else if (btn.dataset.action === 't2s' || btn.dataset.action === 's2t') {
           convertColumn(table, idx, btn.dataset.action);
         }
@@ -191,11 +265,13 @@
     menu.dataset.colIdx = colIdx;
     var headerName = (th.textContent || '').trim();
     var fillBtn = menu.querySelector('[data-action="fill"]');
+    var frBtn = menu.querySelector('[data-action="find-replace"]');
     var t2sBtn = menu.querySelector('[data-action="t2s"]');
     var s2tBtn = menu.querySelector('[data-action="s2t"]');
     var convertDivider = document.getElementById('csv-header-convert-divider');
     var showConvert = headerName && headerName !== 'FileName';
     if (fillBtn) fillBtn.style.display = showConvert ? '' : 'none';
+    if (frBtn) frBtn.style.display = showConvert ? '' : 'none';
     if (t2sBtn && s2tBtn) {
       t2sBtn.style.display = showConvert ? '' : 'none';
       s2tBtn.style.display = showConvert ? '' : 'none';

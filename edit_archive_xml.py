@@ -729,6 +729,7 @@ def batch_find_replace(
     columns: list[str],
     find_str: str,
     replace_str: str,
+    use_regex: bool = False,
 ) -> str:
     find_s = find_str or ""
     rep_s = replace_str or ""
@@ -737,8 +738,16 @@ def batch_find_replace(
 
     def mut(row: list, idxs: list[int]):
         for j in idxs:
-            row[j] = (row[j] or "").replace(find_s, rep_s)
+            cell = row[j] or ""
+            if use_regex:
+                try:
+                    row[j] = re.sub(find_s, rep_s, cell)
+                except re.error:
+                    row[j] = cell  # 正则无效时保持原样
+            else:
+                row[j] = cell.replace(find_s, rep_s)
         return row
+
     cols = resolve_selected_columns(csv_text, include_header, columns)
     return _batch_apply(csv_text, include_header, cols, mut)
 

@@ -135,7 +135,7 @@
       })
       .catch(function(err) { console.error('繁简转换失败:', err); });
   }
-  function findReplaceColumn(table, colIdx, findText, replaceText) {
+  function findReplaceColumn(table, colIdx, findText, replaceText, useRegex) {
     var ths = table.querySelectorAll('thead th');
     var th = ths[colIdx];
     if (!th) return;
@@ -152,6 +152,7 @@
     formData.append('columns', headerName);
     formData.append('fr_find', findText || '');
     formData.append('fr_replace', replaceText || '');
+    formData.append('fr_regex', useRegex ? 'true' : 'false');
     formData.append('action', 'find_replace');
     fetch('/batch-edit', { method: 'POST', body: formData })
       .then(function(r) { return r.text(); })
@@ -174,7 +175,7 @@
       modal.className = 'csv-find-replace-modal';
       modal.setAttribute('role', 'dialog');
       modal.setAttribute('aria-label', '查找替换');
-      modal.innerHTML = '<div class="csv-fr-dialog"><h3>查找替换（本列）</h3><div class="csv-fr-form"><label for="csv-fr-find">查找</label><input type="text" id="csv-fr-find" placeholder="查找内容" /><label for="csv-fr-replace">替换为</label><input type="text" id="csv-fr-replace" placeholder="替换为" /></div><div class="csv-fr-actions"><button type="button" class="btn csv-fr-cancel" style="background:#666;">取消</button><button type="button" class="btn csv-fr-confirm">确定</button></div></div>';
+      modal.innerHTML = '<div class="csv-fr-dialog"><h3>查找替换（本列）<span class="csv-fr-regex-help" id="csv-fr-regex-help" title="正则表达式说明">?</span></h3><div class="csv-fr-form"><label for="csv-fr-find">查找</label><input type="text" id="csv-fr-find" placeholder="查找内容" /><label for="csv-fr-replace">替换为</label><input type="text" id="csv-fr-replace" placeholder="替换为（正则下 \\1 表示第1组）" /><label class="csv-fr-regex-label"><input type="checkbox" id="csv-fr-regex" /> 使用正则表达式</label></div><div class="csv-fr-actions"><button type="button" class="btn csv-fr-cancel" style="background:#666;">取消</button><button type="button" class="btn csv-fr-confirm">确定</button></div></div>';
       document.body.appendChild(modal);
       modal.addEventListener('click', function(ev) {
         if (ev.target === modal) hideFindReplaceModal();
@@ -188,12 +189,39 @@
       function doFindReplace() {
         var findInput = document.getElementById('csv-fr-find');
         var replaceInput = document.getElementById('csv-fr-replace');
+        var regexCb = document.getElementById('csv-fr-regex');
         var tableEl = document.getElementById('csv-data-table');
         var idx = parseInt(modal.dataset.colIdx, 10);
         if (tableEl && !isNaN(idx)) {
-          findReplaceColumn(tableEl, idx, findInput ? findInput.value : '', replaceInput ? replaceInput.value : '');
+          findReplaceColumn(tableEl, idx, findInput ? findInput.value : '', replaceInput ? replaceInput.value : '', regexCb && regexCb.checked);
         }
         hideFindReplaceModal();
+      }
+      var helpIcon = document.getElementById('csv-fr-regex-help');
+      if (helpIcon) {
+        helpIcon.addEventListener('click', function(ev) {
+          ev.stopPropagation();
+          var tip = document.getElementById('csv-fr-regex-tip');
+          if (tip) {
+            tip.remove();
+            return;
+          }
+          tip = document.createElement('div');
+          tip.id = 'csv-fr-regex-tip';
+          tip.className = 'csv-fr-regex-tip';
+          tip.innerHTML = '<strong>正则表达式基本用法</strong><ul><li><code>.</code> 任意字符</li><li><code>*</code> 零次或多次</li><li><code>+</code> 至少一次</li><li><code>?</code> 零次或一次</li><li><code>[]</code> 字符类，如 <code>[0-9]</code></li><li><code>()</code> 分组，替换中用 <code>\\1</code> 引用第1组</li><li><code>^</code> 开头 <code>$</code> 结尾</li><li><code>\\d</code> 数字 <code>\\w</code> 字母数字下划线</li></ul>';
+          tip.style.left = helpIcon.getBoundingClientRect().left + 'px';
+          tip.style.top = (helpIcon.getBoundingClientRect().bottom + 4) + 'px';
+          document.body.appendChild(tip);
+          function removeTip(ev) {
+            var t = document.getElementById('csv-fr-regex-tip');
+            if (!t) return;
+            if (t.contains(ev.target) || helpIcon.contains(ev.target)) return;
+            t.remove();
+            document.removeEventListener('click', removeTip);
+          }
+          setTimeout(function() { document.addEventListener('click', removeTip); }, 0);
+        });
       }
     }
     modal.dataset.colIdx = colIdx;

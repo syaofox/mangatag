@@ -123,6 +123,14 @@ a.btn, a#export-btn { color: #fff; text-decoration: none; }
 .csv-find-replace-modal .csv-fr-form label { font-size: 0.9rem; color: #555; }
 .csv-find-replace-modal .csv-fr-form input { padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; font-size: 0.95rem; }
 .csv-find-replace-modal .csv-fr-actions { margin-top: 1rem; display: flex; gap: 0.5rem; justify-content: flex-end; }
+.csv-fr-regex-help { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; margin-left: 0.35rem; font-size: 0.8rem; font-weight: 600; color: #0066cc; background: #e8f0fe; border-radius: 50%; cursor: help; line-height: 1; }
+.csv-fr-regex-help:hover { background: #d0e4ff; }
+.csv-fr-regex-label { display: flex; align-items: center; gap: 0.4rem; font-weight: normal; cursor: pointer; }
+.csv-fr-regex-tip { position: fixed; z-index: 1200; background: #fff; border: 1px solid #ccc; border-radius: 6px; padding: 0.75rem 1rem; box-shadow: 0 4px 12px rgba(0,0,0,0.15); font-size: 0.85rem; max-width: 280px; }
+.csv-fr-regex-tip strong { display: block; margin-bottom: 0.5rem; }
+.csv-fr-regex-tip ul { margin: 0; padding-left: 1.2rem; }
+.csv-fr-regex-tip li { margin: 0.2rem 0; }
+.csv-fr-regex-tip code { background: #f0f0f0; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.9em; }
 
 /* 窄屏自适应 */
 @media (max-width: 768px) {

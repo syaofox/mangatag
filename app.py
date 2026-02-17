@@ -678,6 +678,7 @@ async def post_batch_edit(
     batch_set_val: str = Form(""),
     fr_find: str = Form(""),
     fr_replace: str = Form(""),
+    fr_regex: str = Form(""),
     prefix_val: str = Form(""),
     suffix_val: str = Form(""),
 ):
@@ -689,7 +690,8 @@ async def post_batch_edit(
     if action == "batch_set":
         out = batch_set(csv_text, include, cols, batch_set_val)
     elif action == "find_replace":
-        out = batch_find_replace(csv_text, include, cols, fr_find, fr_replace)
+        use_regex = (fr_regex or "").lower() in ("1", "true", "yes", "on")
+        out = batch_find_replace(csv_text, include, cols, fr_find, fr_replace, use_regex)
     elif action == "prefix":
         out = batch_prefix(csv_text, include, cols, prefix_val)
     elif action == "suffix":

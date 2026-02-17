@@ -11,6 +11,7 @@ COPY pyproject.toml uv.lock ./
 # 复制源码以便 uv sync 安装项目
 COPY app.py edit_archive_xml.py update_archives_with_xml.py ./
 COPY templates/ ./templates/
+COPY static/ ./static/
 
 # 锁定依赖安装，不装开发包
 RUN uv sync --frozen --no-dev
@@ -27,6 +28,7 @@ WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/app.py /app/edit_archive_xml.py /app/update_archives_with_xml.py ./
 COPY --from=builder /app/templates /app/templates
+COPY --from=builder /app/static /app/static
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \

@@ -285,6 +285,23 @@
     }
     sync();
   }
+  function positionMenuInViewport(menu, anchorRect) {
+    var vw = window.innerWidth;
+    var vh = window.innerHeight;
+    var pad = 8;
+    menu.style.left = anchorRect.left + 'px';
+    menu.style.top = (anchorRect.bottom + 2) + 'px';
+    menu.classList.add('open');
+    var mr = menu.getBoundingClientRect();
+    var top = anchorRect.bottom + 2;
+    var left = anchorRect.left;
+    if (top + mr.height > vh - pad) top = anchorRect.top - mr.height - 2;
+    if (top < pad) top = pad;
+    if (left + mr.width > vw - pad) left = vw - mr.width - pad;
+    if (left < pad) left = pad;
+    menu.style.top = top + 'px';
+    menu.style.left = left + 'px';
+  }
   function showHeaderMenu(th, colIdx) {
     var menu = document.getElementById('csv-header-menu');
     if (!menu) {
@@ -329,9 +346,7 @@
       s2tBtn.style.display = showConvert ? '' : 'none';
     }
     var rect = th.getBoundingClientRect();
-    menu.style.left = rect.left + 'px';
-    menu.style.top = (rect.bottom + 2) + 'px';
-    menu.classList.add('open');
+    positionMenuInViewport(menu, rect);
   }
   function hideHeaderMenu() {
     var menu = document.getElementById('csv-header-menu');
@@ -386,9 +401,7 @@
     if (nextBtn) nextBtn.disabled = rowIdx >= trCount - 1;
     menu.dataset.rowIdx = rowIdx;
     var rect = td.getBoundingClientRect();
-    menu.style.left = rect.left + 'px';
-    menu.style.top = (rect.bottom + 2) + 'px';
-    menu.classList.add('open');
+    positionMenuInViewport(menu, rect);
   }
   function hideFilenameCellMenu() {
     var menu = document.getElementById('csv-filename-cell-menu');

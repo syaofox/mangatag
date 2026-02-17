@@ -154,6 +154,63 @@
     var menu = document.getElementById('csv-header-menu');
     if (menu) menu.classList.remove('open');
   }
+  var EXCLUDE_COPY_COLS = ['FileName', 'Title', 'Number', 'Web'];
+  function copyRowFromNeighbor(table, rowIdx, direction) {
+    var tbody = table.querySelector('tbody');
+    var trs = tbody.querySelectorAll('tr');
+    var srcIdx = direction === 'prev' ? rowIdx - 1 : rowIdx + 1;
+    if (srcIdx < 0 || srcIdx >= trs.length) return;
+    var srcTr = trs[srcIdx];
+    var curTr = trs[rowIdx];
+    var headers = [];
+    table.querySelectorAll('thead th').forEach(function(th) { headers.push(th.textContent.trim()); });
+    var srcInputs = srcTr.querySelectorAll('input');
+    var curInputs = curTr.querySelectorAll('input');
+    for (var c = 0; c < headers.length && c < srcInputs.length && c < curInputs.length; c++) {
+      if (EXCLUDE_COPY_COLS.indexOf(headers[c]) >= 0) continue;
+      curInputs[c].value = srcInputs[c].value;
+    }
+    sync();
+  }
+  function showFilenameCellMenu(td, rowIdx) {
+    var menu = document.getElementById('csv-filename-cell-menu');
+    if (!menu) {
+      menu = document.createElement('div');
+      menu.id = 'csv-filename-cell-menu';
+      menu.className = 'csv-header-menu csv-filename-cell-menu';
+      menu.innerHTML = '<button type="button" data-action="copy-prev">复制上一行</button><button type="button" data-action="copy-next">复制下一行</button>';
+      document.body.appendChild(menu);
+      menu.addEventListener('click', function(ev) {
+        var btn = ev.target.closest('button[data-action]');
+        if (!btn) return;
+        var table = document.getElementById('csv-data-table');
+        var idx = parseInt(menu.dataset.rowIdx, 10);
+        if (!table || isNaN(idx)) return;
+        if (btn.dataset.action === 'copy-prev') copyRowFromNeighbor(table, idx, 'prev');
+        else if (btn.dataset.action === 'copy-next') copyRowFromNeighbor(table, idx, 'next');
+        hideFilenameCellMenu();
+      });
+      document.addEventListener('click', function(ev) {
+        if (!menu.contains(ev.target) && !ev.target.closest('td.csv-row-handle')) hideFilenameCellMenu();
+      });
+    }
+    var table = document.getElementById('csv-data-table');
+    var tbody = table ? table.querySelector('tbody') : null;
+    var trCount = tbody ? tbody.querySelectorAll('tr').length : 0;
+    var prevBtn = menu.querySelector('[data-action="copy-prev"]');
+    var nextBtn = menu.querySelector('[data-action="copy-next"]');
+    if (prevBtn) prevBtn.disabled = rowIdx <= 0;
+    if (nextBtn) nextBtn.disabled = rowIdx >= trCount - 1;
+    menu.dataset.rowIdx = rowIdx;
+    var rect = td.getBoundingClientRect();
+    menu.style.left = rect.left + 'px';
+    menu.style.top = (rect.bottom + 2) + 'px';
+    menu.classList.add('open');
+  }
+  function hideFilenameCellMenu() {
+    var menu = document.getElementById('csv-filename-cell-menu');
+    if (menu) menu.classList.remove('open');
+  }
   function render(containerId, csvText) {
     var rows = parseCSV(csvText);
     var headers = CSV_HEADERS.slice();
@@ -265,6 +322,16 @@
             if (rowDragSrcIdx !== null && rowDragSrcIdx !== toIdx) moveRow(table, rowDragSrcIdx, toIdx);
             rowDragSrcIdx = null;
           });
+          (function(tdEl, rIdx) {
+            tdEl.addEventListener('contextmenu', function(ev) {
+              ev.preventDefault();
+              showFilenameCellMenu(tdEl, rIdx);
+            });
+            tdEl.addEventListener('click', function(ev) {
+              if (ev.target.closest('.csv-filename-cell-menu')) return;
+              showFilenameCellMenu(tdEl, rIdx);
+            });
+          })(td, rowIdx);
         }
         td.appendChild(inp);
         tr.appendChild(td);

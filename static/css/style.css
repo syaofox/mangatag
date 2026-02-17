@@ -37,6 +37,7 @@ textarea { min-height: 120px; font-family: ui-monospace, monospace; font-size: 0
 .csv-header-menu.open { display: flex; flex-direction: column; }
 .csv-header-menu button { display: block; width: 100%; padding: 0.4rem 0.75rem; text-align: left; border: none; background: none; cursor: pointer; font-size: 0.9rem; color: #333; border-radius: 2px; }
 .csv-header-menu button:hover { background: #e8f0fe; color: #0066cc; }
+.csv-header-menu button:disabled { opacity: 0.5; cursor: not-allowed; }
 /* 让单元格内文本输入占满单元格宽度，避免视觉截断；超出时通过容器横向滚动查看 */
 .csv-table td input { width: 100%; min-width: 8em; border: none; padding: 0.2rem; background: transparent; font: inherit; box-sizing: border-box; }
 .csv-table td input:focus { outline: 1px solid #0066cc; background: #fff; }

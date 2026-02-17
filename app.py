@@ -36,6 +36,7 @@ from edit_archive_xml import (
     extract_headers,
     import_csv_content,
     list_dirs_with_archives,
+    rename_archives_by_rule,
     scan_archives,
     save_archives,
     save_archives_streaming,
@@ -725,3 +726,74 @@ async def post_batch_edit(
         "partials/csv_area.html",
         {"request": request, "csv_text": out, "csv_headers": CSV_HEADERS},
     )
+
+
+@app.post("/batch-rename")
+async def post_batch_rename(request: Request):
+    """
+    批量改名：根据规则重命名物理文件并更新 CSV 的 FileName 列。
+    接受 JSON：csv_text, include_header, scan_token, rule, ws_replace_char, conflict_mode。
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+
+    scan_token = str(payload.get("scan_token") or "")
+    csv_text = str(payload.get("csv_text") or "")
+    include_raw = payload.get("include_header", True)
+    rule = str(payload.get("rule") or "").strip()
+    ws_replace_enabled = payload.get("ws_replace_enabled", True)
+    ws_replace_char = str(payload.get("ws_replace_char") or "_") if ws_replace_enabled else ""
+    conflict_mode = str(payload.get("conflict_mode") or "suffix")
+
+    if not rule:
+        return JSONResponse({"ok": False, "error": "规则不能为空"}, status_code=400)
+
+    cache_entry = _SCAN_CACHE.get(scan_token) or {}
+    archives, comic_dir = _get_archives_from_token(scan_token)
+    if not archives:
+        return JSONResponse({"ok": False, "error": "请先扫描目录以建立压缩包顺序"}, status_code=400)
+    if not ensure_archives_allowed(archives):
+        return JSONResponse({"ok": False, "error": "扫描到的压缩包路径不在允许范围内"}, status_code=400)
+
+    include = str(include_raw).lower() in ("1", "true", "yes", "on")
+    if not comic_dir:
+        return JSONResponse({"ok": False, "error": "章节目录不存在"}, status_code=400)
+
+    new_csv_text, log, new_archives = rename_archives_by_rule(
+        archives=archives,
+        comic_dir=comic_dir,
+        csv_text=csv_text,
+        include_header=include,
+        rule=rule,
+        ws_replace_char=ws_replace_char,
+        conflict_mode=conflict_mode,
+    )
+
+    if log.startswith("错误："):
+        return JSONResponse({"ok": False, "error": log, "log": log}, status_code=400)
+
+    orig_rows: dict[str, list[str]] = {}
+    try:
+        reader = csv.reader(io.StringIO(new_csv_text or ""))
+        rows = list(reader)
+        start_idx = 1 if include and rows and rows[0][:1] == ["FileName"] else 0
+        for r in rows[start_idx:]:
+            if not r:
+                continue
+            fn = (r[0] if len(r) > 0 else "").strip()
+            if not fn:
+                continue
+            orig_rows[fn] = r
+    except Exception:
+        orig_rows = {}
+
+    _SCAN_CACHE[scan_token] = {
+        **cache_entry,
+        "archives": new_archives,
+        "orig_rows": orig_rows,
+        "ts": time.time(),
+    }
+
+    return JSONResponse({"ok": True, "csv_text": new_csv_text, "log": log})

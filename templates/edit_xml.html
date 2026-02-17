@@ -81,6 +81,7 @@
         <input type="file" id="import_file" name="import_file" accept=".csv" required />
         <button type="submit" id="import-btn">导入</button>
       </form>
+      <button type="button" id="batch-rename-btn" class="btn" title="根据规则批量重命名文件名">批量改名</button>
     </div>
   </section>
 
@@ -112,6 +113,35 @@
       <div class="actions">
         <button type="button" id="browse-cancel" class="btn" style="background: #666;">取消</button>
         <button type="button" id="browse-select" class="btn">选择此目录</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="batch-rename-modal" class="csv-find-replace-modal" role="dialog" aria-label="批量改名">
+    <div class="csv-fr-dialog batch-rename-dialog">
+      <h3>批量改名</h3>
+      <div class="batch-rename-form">
+        <label for="batch-rename-rule">命名规则（占位符：<code>{列名}</code> 或 <code>{列名:N}</code> 补零，如 <code>{Number:3}</code>）</label>
+        <input type="text" id="batch-rename-rule" placeholder="{Series} - {Number:3} - {Title}" />
+        <label class="batch-rename-opt">
+          <input type="checkbox" id="batch-rename-ws-enable" checked /> 启用空白替换
+        </label>
+        <div class="batch-rename-ws-row">
+          <label for="batch-rename-ws-char">替换为</label>
+          <input type="text" id="batch-rename-ws-char" value="_" maxlength="1" class="batch-input-small" />
+        </div>
+        <div class="batch-rename-conflict-row">
+          <label for="batch-rename-conflict">冲突处理</label>
+          <select id="batch-rename-conflict">
+            <option value="suffix">自动加序号 (2)、(3)...</option>
+            <option value="skip">跳过并报告</option>
+          </select>
+        </div>
+        <div id="batch-rename-preview" class="batch-rename-preview"></div>
+      </div>
+      <div class="csv-fr-actions">
+        <button type="button" class="btn batch-rename-cancel" style="background:#666;">取消</button>
+        <button type="button" class="btn batch-rename-confirm">确定</button>
       </div>
     </div>
   </div>
@@ -408,6 +438,123 @@
       var editDirEl = document.getElementById('edit_dir');
       document.getElementById('export_comic_dir').value = editDirEl ? (editDirEl.value || '') : '';
     });
+
+    // 批量改名
+    (function() {
+      var RULE_KEY = 'mangatag_rename_rule';
+      var WS_CHAR_KEY = 'mangatag_rename_ws_char';
+      var WS_ENABLE_KEY = 'mangatag_rename_ws_enable';
+      var CONFLICT_KEY = 'mangatag_rename_conflict';
+
+      var btn = document.getElementById('batch-rename-btn');
+      var modal = document.getElementById('batch-rename-modal');
+      if (!btn || !modal) return;
+
+      function loadOptions() {
+        try {
+          var rule = localStorage.getItem(RULE_KEY);
+          if (rule != null) document.getElementById('batch-rename-rule').value = rule;
+          var wsChar = localStorage.getItem(WS_CHAR_KEY);
+          if (wsChar != null) document.getElementById('batch-rename-ws-char').value = wsChar || '_';
+          var wsEnable = localStorage.getItem(WS_ENABLE_KEY);
+          if (wsEnable != null) document.getElementById('batch-rename-ws-enable').checked = wsEnable !== '0';
+          var conflict = localStorage.getItem(CONFLICT_KEY);
+          if (conflict != null) document.getElementById('batch-rename-conflict').value = conflict || 'suffix';
+        } catch (e) {}
+      }
+      function saveOptions() {
+        try {
+          var ruleEl = document.getElementById('batch-rename-rule');
+          var wsCharEl = document.getElementById('batch-rename-ws-char');
+          var wsEnableEl = document.getElementById('batch-rename-ws-enable');
+          var conflictEl = document.getElementById('batch-rename-conflict');
+          if (ruleEl) localStorage.setItem(RULE_KEY, ruleEl.value || '');
+          if (wsCharEl) localStorage.setItem(WS_CHAR_KEY, wsCharEl.value || '_');
+          if (wsEnableEl) localStorage.setItem(WS_ENABLE_KEY, wsEnableEl.checked ? '1' : '0');
+          if (conflictEl) localStorage.setItem(CONFLICT_KEY, conflictEl.value || 'suffix');
+        } catch (e) {}
+      }
+
+      btn.addEventListener('click', function() {
+        if (window.csvEditor && window.csvEditor.sync) window.csvEditor.sync();
+        var tokenEl = document.getElementById('scan_token');
+        if (!tokenEl || !tokenEl.value) {
+          alert('请先扫描目录');
+          return;
+        }
+        loadOptions();
+        modal.classList.add('open');
+        document.getElementById('batch-rename-preview').textContent = '（填写规则后点击确定执行）';
+      });
+
+      modal.addEventListener('click', function(e) {
+        if (e.target === modal) modal.classList.remove('open');
+      });
+      document.querySelector('.batch-rename-cancel').addEventListener('click', function() {
+        modal.classList.remove('open');
+      });
+
+      document.querySelector('.batch-rename-confirm').addEventListener('click', function() {
+        var ruleEl = document.getElementById('batch-rename-rule');
+        var rule = ruleEl ? ruleEl.value.trim() : '';
+        if (!rule) {
+          alert('请输入命名规则');
+          return;
+        }
+        saveOptions();
+
+        var csvEl = document.getElementById('csv_text');
+        var includeCb = document.getElementById('include_header');
+        var tokenEl = document.getElementById('scan_token');
+        var wsEnableEl = document.getElementById('batch-rename-ws-enable');
+        var wsCharEl = document.getElementById('batch-rename-ws-char');
+        var conflictEl = document.getElementById('batch-rename-conflict');
+
+        var payload = {
+          csv_text: csvEl ? csvEl.value : '',
+          include_header: includeCb && includeCb.checked ? 'true' : 'false',
+          scan_token: tokenEl ? tokenEl.value : '',
+          rule: rule,
+          ws_replace_enabled: wsEnableEl && wsEnableEl.checked,
+          ws_replace_char: wsCharEl ? (wsCharEl.value || '_') : '_',
+          conflict_mode: conflictEl ? conflictEl.value : 'suffix'
+        };
+
+        var confirmBtn = document.querySelector('.batch-rename-confirm');
+        if (confirmBtn) confirmBtn.disabled = true;
+
+        fetch('/batch-rename', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        })
+          .then(function(res) { return res.json(); })
+          .then(function(data) {
+            if (data && data.ok) {
+              var ta = document.getElementById('csv_text');
+              if (ta) ta.value = data.csv_text || '';
+              if (window.csvEditor && window.csvEditor.render) {
+                window.csvEditor.render('csv-table-wrap', data.csv_text || '');
+              }
+              var logEl = document.getElementById('unified-log');
+              if (logEl) {
+                if (logEl.textContent) logEl.textContent += '\n\n--- 批量改名 ---\n';
+                logEl.textContent += (data.log || '') + '\n';
+              }
+              modal.classList.remove('open');
+            } else {
+              alert(data.error || data.log || '批量改名失败');
+            }
+          })
+          .catch(function(err) {
+            alert('请求失败: ' + (err && err.message || '未知错误'));
+          })
+          .finally(function() {
+            if (confirmBtn) confirmBtn.disabled = false;
+          });
+      });
+    })();
+
     // 保存：流式请求 /save-stream，逐条追加到保存日志
     document.getElementById('save-form').addEventListener('submit', function(e) {
       e.preventDefault();

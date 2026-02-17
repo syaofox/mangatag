@@ -161,6 +161,18 @@ a.btn, a#export-btn { color: #fff; text-decoration: none; }
 .csv-fr-regex-tip li { margin: 0.2rem 0; }
 .csv-fr-regex-tip code { background: #f0f0f0; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.9em; }
 
+/* 批量改名模态框 */
+.batch-rename-dialog { min-width: 420px; }
+.batch-rename-form { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem; }
+.batch-rename-form label { font-size: 0.9rem; color: #555; }
+.batch-rename-form input[type="text"] { padding: 0.5rem; }
+.batch-rename-opt { display: flex; align-items: center; gap: 0.4rem; font-weight: normal; cursor: pointer; }
+.batch-rename-ws-row { display: flex; align-items: center; gap: 0.5rem; }
+.batch-rename-ws-row input { max-width: 4rem; }
+.batch-rename-conflict-row { display: flex; align-items: center; gap: 0.5rem; }
+.batch-rename-conflict-row select { max-width: 220px; }
+.batch-rename-preview { font-size: 0.85rem; color: #666; background: #f5f5f5; padding: 0.5rem; border-radius: 4px; max-height: 120px; overflow-y: auto; white-space: pre-wrap; }
+
 /* 窄屏自适应 */
 @media (max-width: 768px) {
   .main-content { padding: 0.75rem 1rem; }

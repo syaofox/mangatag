@@ -823,3 +823,201 @@ def batch_convert_all(csv_text: str, include_header: bool, mode: str) -> str:
                 row[j] = converter.convert(row[j])
         return row
     return _batch_apply(csv_text, include_header, cols, mut)
+
+
+# ---------------------------------------------------------------------------
+# 批量改名
+# ---------------------------------------------------------------------------
+
+_PLACEHOLDER_RE = re.compile(r"\{(\w+)(?::(\d+))?\}")
+
+
+def _replace_placeholders(
+    rule: str,
+    row: list[str],
+    header: list[str],
+    name_to_idx: dict[str, int],
+) -> str:
+    """将规则中的占位符替换为行值。支持 {列名} 和 {列名:N} 补零格式。"""
+
+    def repl(match: re.Match) -> str:
+        col_name = match.group(1)
+        width_str = match.group(2)
+        idx = name_to_idx.get(col_name)
+        if idx is None or idx >= len(row):
+            return ""
+        val = (row[idx] or "").strip()
+        if width_str:
+            try:
+                width = int(width_str)
+                if width > 0:
+                    try:
+                        num = int(val)
+                        return str(num).zfill(width)
+                    except ValueError:
+                        try:
+                            num = float(val)
+                            return str(int(num)).zfill(width) if num == int(num) else val
+                        except ValueError:
+                            return val
+            except ValueError:
+                pass
+        return val
+
+    return _PLACEHOLDER_RE.sub(repl, rule)
+
+
+def _sanitize_filename(name: str, ws_replace_char: str) -> str:
+    """去头尾空白，可选将内部空白替换为指定字符，并过滤非法文件名字符。"""
+    s = name.strip()
+    if ws_replace_char:
+        s = re.sub(r"\s+", ws_replace_char, s)
+    # 替换非法文件名字符（兼容 Windows/Linux）
+    s = re.sub(r'[/\\:*?"<>|]', "_", s)
+    return s
+
+
+def rename_archives_by_rule(
+    archives: list[str],
+    comic_dir: str,
+    csv_text: str,
+    include_header: bool,
+    rule: str,
+    ws_replace_char: str = "_",
+    conflict_mode: str = "suffix",
+) -> tuple[str, str, list[str]]:
+    """
+    根据命名规则批量重命名压缩包文件，并更新 CSV 的 FileName 列。
+    规则支持 {列名} 和 {列名:N} 占位符；N 为数字时前面补 0。
+    返回 (new_csv_text, log, new_archives)。
+    """
+    logs: list[str] = []
+    if not rule or not rule.strip():
+        return (csv_text, "错误：规则不能为空", archives)
+    if not archives:
+        return (csv_text, "错误：请先扫描目录", archives)
+    if not comic_dir or not os.path.isdir(comic_dir):
+        return (csv_text, "错误：章节目录不存在", archives)
+
+    reader = csv.reader(io.StringIO(csv_text or ""))
+    rows = list(reader)
+    if not rows:
+        return (csv_text, "错误：CSV 为空", archives)
+
+    header = [c.strip() for c in rows[0]]
+    if include_header and header and header[:1] == ["FileName"]:
+        data_rows = rows[1:]
+        name_to_idx = {name: idx for idx, name in enumerate(header)}
+    else:
+        data_rows = rows
+        header = CSV_HEADERS
+        name_to_idx = {name: idx for idx, name in enumerate(header)}
+
+    # 建立 archive 路径 -> 行 的映射（按 archives 顺序）
+    archive_to_row: list[tuple[str, list[str] | None]] = []  # (ap, row or None if skipped)
+    row_map: dict[str, list[str]] = {}
+    for r in data_rows:
+        if not r:
+            continue
+        fn = (r[0] if len(r) > 0 else "").strip()
+        if not fn:
+            continue
+        row_map[fn] = r
+
+    for ap in archives:
+        name = os.path.basename(ap)
+        row = row_map.get(name)
+        if row is None:
+            logs.append(f"跳过：CSV 未提供对应行 -> {name}")
+            archive_to_row.append((ap, None))
+            continue
+        archive_to_row.append((ap, row))
+
+    processed = [(ap, row) for ap, row in archive_to_row if row is not None]
+    if not processed:
+        return (csv_text, "错误：无匹配的 CSV 行", archives)
+
+    # 生成新文件名
+    new_names: list[tuple[str, list[str], str]] = []  # (old_path, row, new_basename)
+    used_names: set[str] = set()
+
+    for ap, row in processed:
+        old_name = os.path.basename(ap)
+        ext = os.path.splitext(old_name)[1] or ".cbz"
+        base = _replace_placeholders(rule, row, header, name_to_idx)
+        base = _sanitize_filename(base, ws_replace_char)
+        if not base:
+            base = old_name  # 避免空名
+        new_basename = base + ext
+
+        # 冲突处理
+        if conflict_mode == "suffix":
+            candidate = new_basename
+            suffix = 2
+            while candidate in used_names:
+                stem, ext_part = os.path.splitext(new_basename)
+                candidate = f"{stem} ({suffix}){ext_part}"
+                suffix += 1
+            new_basename = candidate
+        elif new_basename in used_names:
+            logs.append(f"跳过(冲突)：{old_name} -> {new_basename}")
+            continue
+
+        used_names.add(new_basename)
+        new_names.append((ap, row, new_basename))
+
+    # 重命名：先临时，再最终
+    temp_paths: list[tuple[str, str]] = []  # (old_path, temp_path)
+    for i, (ap, row, new_basename) in enumerate(new_names):
+        temp_name = f".mangatag_rename_{i}"
+        temp_path = os.path.join(comic_dir, temp_name)
+        try:
+            os.rename(ap, temp_path)
+            temp_paths.append((ap, temp_path))
+        except OSError as e:
+            logs.append(f"重命名失败：{os.path.basename(ap)} -> {e}")
+            # 回滚已重命名的
+            for old_p, tmp_p in temp_paths:
+                try:
+                    os.rename(tmp_p, old_p)
+                except OSError:
+                    pass
+            return (csv_text, "\n".join(logs), archives)
+
+    renamed_old_to_new: dict[str, str] = {}
+    old_to_row: dict[str, list[str]] = {}
+    for (old_path, temp_path), (_, row, new_basename) in zip(temp_paths, new_names):
+        old_name = os.path.basename(old_path)
+        new_path = os.path.join(comic_dir, new_basename)
+        try:
+            os.rename(temp_path, new_path)
+            renamed_old_to_new[old_path] = new_path
+            row[0] = new_basename
+            old_to_row[old_name] = row
+            logs.append(f"已重命名：{old_name} -> {new_basename}")
+        except OSError as e:
+            logs.append(f"重命名失败：{new_basename} -> {e}")
+            try:
+                os.rename(temp_path, old_path)
+            except OSError:
+                pass
+
+    new_archives = [renamed_old_to_new.get(ap, ap) for ap in archives]
+
+    # 重建 CSV
+    output = io.StringIO()
+    writer = csv.writer(output)
+    if include_header and rows and rows[0][:1] == ["FileName"]:
+        writer.writerow(rows[0])
+    else:
+        writer.writerow(CSV_HEADERS)
+
+    for r in data_rows:
+        fn = (r[0] if len(r) > 0 else "").strip()
+        if fn in old_to_row:
+            writer.writerow(old_to_row[fn])
+        else:
+            writer.writerow(r)
+
+    logs.append("批量改名完成")
+    return (output.getvalue(), "\n".join(logs), new_archives)

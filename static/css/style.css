@@ -163,6 +163,10 @@ a.btn, a#export-btn { color: #fff; text-decoration: none; }
 
 /* 批量改名模态框 */
 .batch-rename-dialog { min-width: 420px; }
+.batch-rename-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; }
+.batch-rename-header h3 { margin: 0; }
+.batch-rename-close-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; font-size: 1.5rem; line-height: 1; color: #666; background: none; border: none; border-radius: 4px; cursor: pointer; }
+.batch-rename-close-btn:hover { color: #333; background: #eee; }
 .batch-rename-form { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem; }
 .batch-rename-form label { font-size: 0.9rem; color: #555; }
 .batch-rename-form input[type="text"] { padding: 0.5rem; }

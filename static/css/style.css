@@ -25,7 +25,7 @@ label { display: block; margin-top: 0.75rem; margin-bottom: 0.25rem; color: #555
 input[type="text"], select, textarea { width: 100%; max-width: min(640px, 100%); padding: 0.5rem; background: #fff; border: 1px solid #ccc; border-radius: 4px; color: #333; box-sizing: border-box; }
 textarea { min-height: 120px; font-family: ui-monospace, monospace; font-size: 0.875rem; }
 #csv-area textarea { min-height: 280px; max-width: none; width: 100%; white-space: pre; overflow-x: auto; }
-.csv-table-container { overflow: auto; max-height: 400px; border: 1px solid #ddd; border-radius: 4px; margin-top: 0.25rem; }
+.csv-table-container { overflow: auto; border: 1px solid #ddd; border-radius: 4px; margin-top: 0.25rem; }
 .csv-table { border-collapse: collapse; font-size: 0.85rem; width: max-content; min-width: 100%; table-layout: auto; }
 .csv-table th, .csv-table td { border: 1px solid #ddd; padding: 0.25rem 0.4rem; text-align: left; white-space: nowrap; }
 .csv-table th { background: #f0f0f0; font-weight: 600; position: sticky; top: 0; }

@@ -80,6 +80,7 @@ a.btn, a#export-btn { color: #fff; text-decoration: none; }
 .batch-input { max-width: min(200px, 100%); flex: 1; min-width: 6rem; }
 .batch-input-val { max-width: min(240px, 100%); }
 .batch-input-small { max-width: min(120px, 100%); flex: 0 1 auto; min-width: 4rem; }
+.batch-hint { font-size: 0.85rem; color: #666; margin: 0 0 1rem 0; }
 .batch-group { margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid #e8e8e8; }
 .batch-group:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
 .batch-group-title { font-size: 0.85rem; color: #555; margin-bottom: 0.5rem; }

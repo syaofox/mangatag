@@ -76,6 +76,7 @@
   <details class="accordion">
     <summary>批量编辑</summary>
     <div class="body">
+      <p class="batch-hint">基于上方 CSV 区当前内容（扫描后可能已更改）进行编辑。</p>
       <div class="batch-group">
         <div class="batch-group-title">繁简转换</div>
         <div class="form-row">
@@ -297,6 +298,15 @@
       if (document.getElementById('csv-initial-data') && !document.getElementById('csv-data-table')) {
         setTimeout(maybeRenderCsvTable, 0);
       }
+    });
+
+    // 批量编辑前：HTMX 在 beforeRequest 之前就收集了表单值，需在 configRequest 中同步表格到 csv_text
+    document.body.addEventListener('htmx:configRequest', function(ev) {
+      var el = ev.detail && ev.detail.elt;
+      if (!el || (el.getAttribute('hx-post') || '').indexOf('batch-edit') < 0) return;
+      if (window.csvEditor && window.csvEditor.sync) window.csvEditor.sync();
+      var ta = document.getElementById('csv_text');
+      if (ta && ev.detail.parameters) ev.detail.parameters['csv_text'] = ta.value;
     });
 
     // 漫画文件夹输入：简繁体不敏感搜索，动态更新 datalist

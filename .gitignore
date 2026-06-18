@@ -12,3 +12,7 @@ wheels/
 # Outputs
 outputs/
 config/cookies.json
+
+# Coverage
+.coverage
+coverage/

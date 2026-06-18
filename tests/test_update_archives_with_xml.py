@@ -2,8 +2,10 @@
 Tests for update_archives_with_xml.py
 """
 import os
+import sys
 import zipfile
 
+import pytest
 from lxml import etree
 
 from update_archives_with_xml import (
@@ -13,6 +15,7 @@ from update_archives_with_xml import (
     extract_chapter_index,
     fuzzy_ratio,
     list_archives,
+    main,
     normalize_text,
     read_xml_title,
     update_archive_with_xml,
@@ -321,3 +324,215 @@ class TestUpdateArchiveWithXml:
         with open(xml_path, "wb") as f:
             f.write(_make_comic_xml("Title"))
         assert not update_archive_with_xml(archive, xml_path)
+
+
+# ---------------------------------------------------------------------------
+# read_xml_title additional coverage
+# ---------------------------------------------------------------------------
+
+class TestReadXmlTitleExtra:
+    def test_empty_title_returns_none(self, tmp_path):
+        xml_path = str(tmp_path / "ComicInfo.xml")
+        root = etree.Element("ComicInfo")
+        etree.SubElement(root, "Title").text = "   "
+        with open(xml_path, "wb") as f:
+            f.write(etree.tostring(etree.ElementTree(root), xml_declaration=True, encoding="UTF-8"))
+        assert read_xml_title(xml_path) is None
+
+
+# ---------------------------------------------------------------------------
+# discover_xmls additional coverage
+# ---------------------------------------------------------------------------
+
+class TestDiscoverXmlsExtra:
+    def test_skips_non_directories(self, tmp_path):
+        (tmp_path / "afile.txt").write_text("data")
+        chapter = tmp_path / "ch01"
+        chapter.mkdir()
+        xml_path = chapter / "ComicInfo.xml"
+        root = etree.Element("ComicInfo")
+        etree.SubElement(root, "Title").text = "T"
+        with open(xml_path, "wb") as f:
+            f.write(etree.tostring(etree.ElementTree(root), xml_declaration=True, encoding="UTF-8"))
+        items = discover_xmls(str(tmp_path))
+        assert len(items) == 1
+
+
+# ---------------------------------------------------------------------------
+# best_match additional coverage
+# ---------------------------------------------------------------------------
+
+class TestBestMatchExtra:
+    def test_exact_name_match_gets_full_score(self, tmp_path):
+        (tmp_path / "Chapter 01.cbz").write_text("data")
+        archives = list_archives(str(tmp_path))
+        path, score = best_match("Chapter 01", archives)
+        assert score == 1.0
+
+    def test_exact_name_match_no_query_index(self, tmp_path):
+        (tmp_path / "Chapter 01.cbz").write_text("data")
+        archives = list_archives(str(tmp_path))
+        path, score = best_match("Chapter 01", archives)
+        assert score >= 0.99
+
+    def test_different_main_chapter_mismatch(self, tmp_path):
+        (tmp_path / "ch02.cbz").write_text("data")
+        archives = list_archives(str(tmp_path))
+        path, score = best_match("ch01", archives)
+        assert "ch01" not in os.path.basename(path or "")
+
+    def test_different_sub_chapter_zero_score(self, tmp_path):
+        (tmp_path / "ch01.2.cbz").write_text("data")
+        archives = list_archives(str(tmp_path))
+        path, score = best_match("ch01.1", archives)
+        assert score == 0.0
+
+    def test_no_query_index_falls_to_fuzzy(self, tmp_path):
+        (tmp_path / "hello_world.cbz").write_text("data")
+        archives = list_archives(str(tmp_path))
+        path, score = best_match("hello world", archives)
+        assert score > 0
+
+
+# ---------------------------------------------------------------------------
+# update_archive_with_xml edge cases
+# ---------------------------------------------------------------------------
+
+class TestUpdateArchiveWithXmlExtra:
+    def test_temp_cleanup_error(self, tmp_path, monkeypatch):
+        archive = str(tmp_path / "test.cbz")
+        with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("page.jpg", b"data")
+        xml_path = str(tmp_path / "ComicInfo.xml")
+        root = etree.Element("ComicInfo")
+        etree.SubElement(root, "Title").text = "T"
+        with open(xml_path, "wb") as f:
+            f.write(etree.tostring(etree.ElementTree(root), xml_declaration=True, encoding="UTF-8"))
+
+        original_exists = os.path.exists
+
+        def always_exists(path):
+            if ".zip" in path:
+                return True
+            return original_exists(path)
+
+        monkeypatch.setattr(os.path, "exists", always_exists)
+        result = update_archive_with_xml(archive, xml_path, dry_run=False, force=False)
+        assert result is True
+
+
+# ---------------------------------------------------------------------------
+# main() function
+# ---------------------------------------------------------------------------
+
+class TestMain:
+    def test_missing_comic_dir(self, capsys, monkeypatch):
+        monkeypatch.setattr(sys, "argv", ["prog", "/nonexistent_comic", "/tmp"])
+        with pytest.raises(SystemExit):
+            main()
+        captured = capsys.readouterr()
+        assert "错误" in captured.out
+
+    def test_missing_xml_root(self, capsys, monkeypatch, tmp_path):
+        comic_dir = str(tmp_path)
+        monkeypatch.setattr(sys, "argv", ["prog", comic_dir, "/nonexistent_xml"])
+        with pytest.raises(SystemExit):
+            main()
+        captured = capsys.readouterr()
+        assert "错误" in captured.out
+
+    def test_no_xml_files(self, capsys, monkeypatch, tmp_path):
+        xml_root = str(tmp_path / "xml")
+        os.makedirs(xml_root, exist_ok=True)
+        monkeypatch.setattr(sys, "argv", ["prog", str(tmp_path), xml_root])
+        with pytest.raises(SystemExit):
+            main()
+        captured = capsys.readouterr()
+        assert "未发现任何 XML" in captured.out
+
+    def test_no_archives(self, capsys, monkeypatch, tmp_path):
+        xml_root = str(tmp_path / "xml")
+        os.makedirs(xml_root)
+        ch = os.path.join(xml_root, "ch01")
+        os.makedirs(ch)
+        xml_path = os.path.join(ch, "ComicInfo.xml")
+        root = etree.Element("ComicInfo")
+        etree.SubElement(root, "Title").text = "ChapterTitle"
+        with open(xml_path, "wb") as f:
+            f.write(etree.tostring(etree.ElementTree(root), xml_declaration=True, encoding="UTF-8"))
+
+        comic_dir = tmp_path
+        monkeypatch.setattr(sys, "argv", ["prog", str(comic_dir), xml_root])
+        with pytest.raises(SystemExit):
+            main()
+        captured = capsys.readouterr()
+        assert "未发现任何章节压缩包" in captured.out
+
+    def test_dry_run_success(self, capsys, monkeypatch, tmp_path):
+        xml_root = str(tmp_path / "xml")
+        os.makedirs(xml_root)
+        ch = os.path.join(xml_root, "ch01")
+        os.makedirs(ch)
+        xml_path = os.path.join(ch, "ComicInfo.xml")
+        root = etree.Element("ComicInfo")
+        etree.SubElement(root, "Title").text = "ChapterTitle"
+        with open(xml_path, "wb") as f:
+            f.write(etree.tostring(etree.ElementTree(root), xml_declaration=True, encoding="UTF-8"))
+
+        comic_dir = str(tmp_path / "comic")
+        os.makedirs(comic_dir)
+        archive = os.path.join(comic_dir, "ch01.cbz")
+        with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("page.jpg", b"data")
+
+        monkeypatch.setattr(sys, "argv", ["prog", comic_dir, xml_root, "--dry-run", "--verbose"])
+        main()
+        captured = capsys.readouterr()
+        assert "匹配成功" in captured.out
+        assert "处理完成" in captured.out
+
+    def test_strategy_title_only(self, capsys, monkeypatch, tmp_path):
+        xml_root = str(tmp_path / "xml")
+        os.makedirs(xml_root)
+        ch = os.path.join(xml_root, "ch01")
+        os.makedirs(ch)
+        xml_path = os.path.join(ch, "ComicInfo.xml")
+        root = etree.Element("ComicInfo")
+        etree.SubElement(root, "Title").text = "ch01"
+        with open(xml_path, "wb") as f:
+            f.write(etree.tostring(etree.ElementTree(root), xml_declaration=True, encoding="UTF-8"))
+
+        comic_dir = str(tmp_path / "comic")
+        os.makedirs(comic_dir)
+        archive = os.path.join(comic_dir, "ch01.cbz")
+        with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("page.jpg", b"data")
+
+        monkeypatch.setattr(sys, "argv", ["prog", comic_dir, xml_root, "--strategy", "title", "--dry-run"])
+        main()
+        captured = capsys.readouterr()
+        assert "处理完成" in captured.out
+
+    def test_archive_already_used(self, capsys, monkeypatch, tmp_path):
+        xml_root = str(tmp_path / "xml")
+        os.makedirs(xml_root)
+        for folder in ["ch01", "ch02"]:
+            ch = os.path.join(xml_root, folder)
+            os.makedirs(ch)
+            xml_path = os.path.join(ch, "ComicInfo.xml")
+            root = etree.Element("ComicInfo")
+            etree.SubElement(root, "Title").text = f"Title-{folder}"
+            with open(xml_path, "wb") as f:
+                f.write(etree.tostring(etree.ElementTree(root), xml_declaration=True, encoding="UTF-8"))
+
+        comic_dir = str(tmp_path / "comic")
+        os.makedirs(comic_dir)
+        archive = os.path.join(comic_dir, "ch01.cbz")
+        with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("page.jpg", b"data")
+
+        args = ["prog", comic_dir, xml_root, "--strategy", "folder", "--dry-run", "--verbose"]
+        monkeypatch.setattr(sys, "argv", args)
+        main()
+        captured = capsys.readouterr()
+        assert "处理完成" in captured.out

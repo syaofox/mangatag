@@ -7,10 +7,13 @@ from edit_archive_xml import (
     ALL_MARK,
     CSV_HEADERS,
     XML_FIELD_TAGS,
+    _batch_apply,
     _fields_equal,
     _replace_placeholders,
     _sanitize_filename,
     _sort_by_number_field,
+    batch_convert,
+    batch_convert_all,
     batch_find_replace,
     batch_prefix,
     batch_set,
@@ -654,3 +657,507 @@ class TestRenameArchivesByRule:
             ["a.cbz"], "/nonexistent/dir", "FileName,Title\na.cbz,T", True, "{Title}"
         )
         assert "章节目录不存在" in log
+
+
+# ---------------------------------------------------------------------------
+# write_xml_to_archive additional edge cases
+# ---------------------------------------------------------------------------
+
+class TestWriteXmlToArchiveExtra:
+    def test_cleanup_error_on_failure(self, tmp_path, monkeypatch):
+        _make_archive(str(tmp_path / "ch01.cbz"), build_xml_from_fields({"Title": "T"}))
+        ap = str(tmp_path / "ch01.cbz")
+
+        original_replace = os.replace
+        call_count = 0
+
+        def failing_replace(src, dst):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise OSError("replace failed")
+            return original_replace(src, dst)
+
+        monkeypatch.setattr(os, "replace", failing_replace)
+        result = write_xml_to_archive(ap, build_xml_from_fields({"Title": "New"}))
+        assert result is False
+
+    def test_cleanup_remove_error(self, tmp_path, monkeypatch):
+        _make_archive(str(tmp_path / "ch01.cbz"), build_xml_from_fields({"Title": "T"}))
+        ap = str(tmp_path / "ch01.cbz")
+
+        def failing_remove(path):
+            raise OSError("remove failed")
+
+        monkeypatch.setattr(os, "remove", failing_remove)
+        result = write_xml_to_archive(ap, build_xml_from_fields({"Title": "New"}))
+        assert result is True
+
+
+# ---------------------------------------------------------------------------
+# list_dirs_with_archives OSError coverage
+# ---------------------------------------------------------------------------
+
+class TestListDirsWithArchivesExtra:
+    def test_oserror_on_listdir(self, tmp_path, monkeypatch):
+        sub = tmp_path / "sub"
+        sub.mkdir()
+
+        original_listdir = os.listdir
+
+        def failing_listdir(path):
+            if "sub" in path:
+                raise OSError("permission denied")
+            return original_listdir(path)
+
+        monkeypatch.setattr(os, "listdir", failing_listdir)
+        result = list_dirs_with_archives(str(sub))
+        assert result == []
+
+    def test_oserror_on_sub_listdir(self, tmp_path, monkeypatch):
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        inner = sub / "inner"
+        inner.mkdir()
+        archive = inner / "ch01.cbz"
+        zipfile.ZipFile(archive, "w").close()
+
+        original_listdir = os.listdir
+
+        def failing_listdir(path):
+            if "inner" in path:
+                raise OSError("permission denied")
+            return original_listdir(path)
+
+        monkeypatch.setattr(os, "listdir", failing_listdir)
+        result = list_dirs_with_archives(str(tmp_path))
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# _sort_by_number_field
+# ---------------------------------------------------------------------------
+
+class TestSortByNumberFieldExtra:
+    def test_parse_none(self):
+        result = _sort_by_number_field(
+            ["a.zip", "b.zip"],
+            {"a.zip": {}, "b.zip": {}}
+        )
+        assert len(result) == 2
+
+    def test_parse_float_number(self):
+        result = _sort_by_number_field(
+            ["a.zip"],
+            {"a.zip": {"Number": "3.5"}}
+        )
+        assert result == ["a.zip"]
+
+    def test_parse_non_numeric(self):
+        result = _sort_by_number_field(
+            ["a.zip"],
+            {"a.zip": {"Number": "abc"}}
+        )
+        assert result == ["a.zip"]
+
+    def test_parse_empty_string(self):
+        result = _sort_by_number_field(
+            ["a.zip"],
+            {"a.zip": {"Number": ""}}
+        )
+        assert result == ["a.zip"]
+
+
+# ---------------------------------------------------------------------------
+# scan_archives additional edge cases
+# ---------------------------------------------------------------------------
+
+class TestScanArchivesExtra:
+    def test_no_archives_dir(self, tmp_path):
+        csv_text, scan_log, archives = scan_archives(str(tmp_path), True, "按数字大小顺序")
+        assert "发现压缩包：0 个" in scan_log
+        assert archives == []
+
+    def test_corrupt_archive(self, tmp_path):
+        ap = str(tmp_path / "bad.cbz")
+        with open(ap, "wb") as f:
+            f.write(b"not a zip file")
+        csv_text, scan_log, archives = scan_archives(str(tmp_path), True, "按数字大小顺序")
+        assert len(archives) == 1
+        assert "失败" in scan_log or "读取" in scan_log or "1 个" in scan_log
+
+    def test_scan_then_re_read_fallback(self, tmp_path):
+        xml = build_xml_from_fields({"Title": "T"})
+        ap = str(tmp_path / "ch01.cbz")
+        with zipfile.ZipFile(ap, "w") as zf:
+            zf.writestr("ComicInfo.xml", xml)
+            zf.writestr("page.jpg", b"data")
+        csv_text, scan_log, archives = scan_archives(str(tmp_path), False, "按字母顺序")
+        assert "T" in csv_text or "T" in scan_log
+
+    def test_invalid_sort_mode_falls_back(self, tmp_path):
+        xml = build_xml_from_fields({"Title": "T"})
+        ap = str(tmp_path / "ch01.cbz")
+        with zipfile.ZipFile(ap, "w") as zf:
+            zf.writestr("ComicInfo.xml", xml)
+            zf.writestr("page.jpg", b"data")
+        csv_text, scan_log, archives = scan_archives(str(tmp_path), True, "按Number列数字大小排序")
+        assert len(archives) == 1
+
+
+# ---------------------------------------------------------------------------
+# _save_archives_iter coverage
+# ---------------------------------------------------------------------------
+
+class TestSaveArchivesExtra:
+    def test_csv_with_empty_row(self, tmp_path):
+        _make_archive(str(tmp_path / "ch01.cbz"), build_xml_from_fields({"Title": "T"}))
+        archives = [str(tmp_path / "ch01.cbz")]
+        h = ",".join(CSV_HEADERS)
+        csv_text = f"{h}\n\nch01.cbz,NewT,S,1,,,,,,,,,\n"
+        log, success = save_archives(archives, csv_text, True, True)
+        assert success, log
+        assert "已保存" in log
+
+    def test_row_without_fn_skipped(self, tmp_path):
+        _make_archive(str(tmp_path / "ch01.cbz"), build_xml_from_fields({"Title": "T"}))
+        archives = [str(tmp_path / "ch01.cbz")]
+        h = ",".join(CSV_HEADERS)
+        csv_text = f"{h}\n,ch01.cbz,S,1,,,,,,,,,\n"
+        log, success = save_archives(archives, csv_text, True, True)
+        assert not success
+        assert "CSV 缺少" in log
+
+    def test_skip_missing_without_check(self, tmp_path):
+        _make_archive(str(tmp_path / "ch01.cbz"), build_xml_from_fields({"Title": "T"}))
+        archives = [str(tmp_path / "ch01.cbz")]
+        csv_text = "FileName,Title\nch02.cbz,Other\n"
+        log, success = save_archives(archives, csv_text, True, False)
+        assert success
+        assert "跳过" in log
+
+    def test_extra_row_without_check(self, tmp_path):
+        _make_archive(str(tmp_path / "ch01.cbz"), build_xml_from_fields({"Title": "T"}))
+        archives = [str(tmp_path / "ch01.cbz")]
+        csv_text = "FileName,Title\nch01.cbz,T\nch02.cbz,Extra\n"
+        log, success = save_archives(archives, csv_text, True, False)
+        assert success
+
+    def test_pad_short_row(self, tmp_path):
+        _make_archive(str(tmp_path / "ch01.cbz"), build_xml_from_fields({"Title": "T"}))
+        archives = [str(tmp_path / "ch01.cbz")]
+        csv_text = "FileName,Title\nch01.cbz,NewT\n"
+        log, success = save_archives(archives, csv_text, True, True)
+        assert success, log
+
+    def test_unchanged_with_original_rows(self, tmp_path):
+        xml = build_xml_from_fields({"Title": "T", "Series": "S", "Number": "1"})
+        _make_archive(str(tmp_path / "ch01.cbz"), xml)
+        archives = [str(tmp_path / "ch01.cbz")]
+        h = ",".join(CSV_HEADERS)
+        csv_text = f"{h}\nch01.cbz,T,S,1,,,,,,,,,\n"
+        orig = {"ch01.cbz": ["ch01.cbz", "T", "S", "1", "", "", "", "", "", "", "", ""]}
+        log, success = save_archives(archives, csv_text, True, True, original_rows=orig)
+        assert success
+        assert "与扫描时内容一致" in log
+
+    def test_write_failure(self, tmp_path, monkeypatch):
+        _make_archive(str(tmp_path / "ch01.cbz"), build_xml_from_fields({"Title": "T"}))
+        archives = [str(tmp_path / "ch01.cbz")]
+        h = ",".join(CSV_HEADERS)
+        csv_text = f"{h}\nch01.cbz,NewT,S,1,,,,,,,,,\n"
+
+        orig_write = write_xml_to_archive
+        called = False
+
+        def mock_write(ap, xml_bytes):
+            nonlocal called
+            if not called:
+                called = True
+                return False
+            return orig_write(ap, xml_bytes)
+
+        monkeypatch.setattr("edit_archive_xml.write_xml_to_archive", mock_write)
+        log, success = save_archives(archives, csv_text, True, True)
+        assert success
+        assert "失败" in log
+
+
+# ---------------------------------------------------------------------------
+# export_csv additional edge cases
+# ---------------------------------------------------------------------------
+
+class TestExportCsvExtra:
+    def test_no_xml_defaults(self, tmp_path):
+        ap = str(tmp_path / "ch01.cbz")
+        with zipfile.ZipFile(ap, "w") as zf:
+            zf.writestr("page.jpg", b"data")
+        data, name = export_csv("", True, "dir", [ap])
+        assert b"ch01.cbz" in data
+        assert b"ch01" in data
+
+    def test_read_exception_fallback(self, tmp_path, monkeypatch):
+        ap = str(tmp_path / "ch01.cbz")
+        with zipfile.ZipFile(ap, "w") as zf:
+            zf.writestr("page.jpg", b"data")
+
+        def broken_read(path):
+            raise ValueError("read error")
+
+        monkeypatch.setattr("edit_archive_xml.read_xml_from_archive", broken_read)
+        data, name = export_csv("", True, "dir", [ap])
+        assert b"ch01.cbz" in data
+
+
+# ---------------------------------------------------------------------------
+# _batch_apply edge cases
+# ---------------------------------------------------------------------------
+
+class TestBatchApply:
+    def test_no_csv_text(self):
+        result = _batch_apply("", True, ["Title"], lambda r, i: r)
+        assert result == ""
+
+    def test_no_selected_columns(self):
+        result = _batch_apply("a,b\n1,2", True, [], lambda r, i: r)
+        assert result == "a,b\n1,2"
+
+    def test_no_rows_after_parsing(self):
+        result = _batch_apply("FileName,Title", True, ["Title"], lambda r, i: r)
+        assert result is not None
+
+    def test_exception_during_processing(self):
+        def broken_mutator(row, indices):
+            raise ValueError("oops")
+
+        result = _batch_apply("FileName,Title\nch01.cbz,T", True, ["Title"], broken_mutator)
+        assert result == "FileName,Title\nch01.cbz,T"
+
+    def test_no_header_with_csv_headers_index(self):
+        result = _batch_apply(
+            "ch01.cbz,T",
+            False,
+            ["Title"],
+            lambda row, indices: [row[0], "Modified"] if indices else row,
+        )
+        assert "Modified" in result
+
+    def test_value_error_on_index_lookup(self):
+        result = _batch_apply(
+            "FileName,Title\nch01.cbz,T",
+            True,
+            ["NonExistent"],
+            lambda r, i: r,
+        )
+        assert result == "FileName,Title\nch01.cbz,T"
+
+    def test_pad_row_to_max_index(self):
+        def mut(row, idxs):
+            for i in idxs:
+                row[i] = "X"
+            return row
+        result = _batch_apply("FileName,Title,Series\nch01.cbz,Old,S1", True, ["Title"], mut)
+        assert "X" in result
+
+
+# ---------------------------------------------------------------------------
+# batch_convert / batch_convert_all edge cases
+# ---------------------------------------------------------------------------
+
+class TestBatchConvert:
+    def test_opencc_not_available(self, monkeypatch):
+        monkeypatch.setattr("edit_archive_xml.opencc", None)
+        csv_text = "FileName,Title\nch01.cbz,T\n"
+        result = batch_convert(csv_text, True, ["Title"], "t2s")
+        assert result == csv_text
+
+    def test_convert_all_opencc_not_available(self, monkeypatch):
+        monkeypatch.setattr("edit_archive_xml.opencc", None)
+        csv_text = "FileName,Title\nch01.cbz,T\n"
+        result = batch_convert_all(csv_text, True, "t2s")
+        assert result == csv_text
+
+    def test_opencc_init_fails(self, monkeypatch):
+        class FailingOpenCC:
+            def __init__(self, mode):
+                raise RuntimeError("init failed")
+
+        monkeypatch.setattr("edit_archive_xml.opencc", type("MockOpenCC", (), {"OpenCC": FailingOpenCC}))
+        csv_text = "FileName,Title\nch01.cbz,T\n"
+        result = batch_convert(csv_text, True, ["Title"], "s2t")
+        assert result == csv_text
+
+    def test_convert_all_init_fails(self, monkeypatch):
+        class FailingOpenCC:
+            def __init__(self, mode):
+                raise RuntimeError("init failed")
+
+        monkeypatch.setattr("edit_archive_xml.opencc", type("MockOpenCC", (), {"OpenCC": FailingOpenCC}))
+        csv_text = "FileName,Title\nch01.cbz,T\n"
+        result = batch_convert_all(csv_text, True, "t2s")
+        assert result == csv_text
+
+
+# ---------------------------------------------------------------------------
+# _replace_placeholders edge cases
+# ---------------------------------------------------------------------------
+
+class TestReplacePlaceholdersExtra:
+    def test_float_to_int_padding(self):
+        row = ["ch01.cbz", "T", "S", "5.0"]
+        header = ["FileName", "Title", "Series", "Number"]
+        n2i = {n: i for i, n in enumerate(header)}
+        result = _replace_placeholders("{Number:3}", row, header, n2i)
+        assert result == "005"
+
+    def test_float_non_integer_padding(self):
+        row = ["ch01.cbz", "T", "S", "5.5"]
+        header = ["FileName", "Title", "Series", "Number"]
+        n2i = {n: i for i, n in enumerate(header)}
+        result = _replace_placeholders("{Number:3}", row, header, n2i)
+        assert result == "5.5"
+
+    def test_non_numeric_padding(self):
+        row = ["ch01.cbz", "T", "S", "abc"]
+        header = ["FileName", "Title", "Series", "Number"]
+        n2i = {n: i for i, n in enumerate(header)}
+        result = _replace_placeholders("{Number:3}", row, header, n2i)
+        assert result == "abc"
+
+    def test_invalid_width_non_digit(self):
+        row = ["ch01.cbz", "T", "S", "5"]
+        header = ["FileName", "Title", "Series", "Number"]
+        n2i = {n: i for i, n in enumerate(header)}
+        result = _replace_placeholders("{Number:abc}", row, header, n2i)
+        assert result == "{Number:abc}"
+
+
+# ---------------------------------------------------------------------------
+# preview_rename_by_rule edge cases
+# ---------------------------------------------------------------------------
+
+class TestPreviewRenameByRuleExtra:
+    def test_csv_is_empty(self):
+        result, err = preview_rename_by_rule(["a.cbz"], "", True, "{Title}")
+        assert "CSV 为空" in err
+
+    def test_no_header_in_csv(self):
+        csv_text = "a.cbz,T\nb.cbz,T2\n"
+        archives = ["a.cbz", "b.cbz"]
+        result, err = preview_rename_by_rule(archives, csv_text, False, "{Title}")
+        assert err == ""
+
+    def test_no_matching_row(self):
+        csv_text = "FileName,Title\nc.cbz,T\n"
+        result, err = preview_rename_by_rule(["a.cbz"], csv_text, True, "{Title}")
+        assert "无匹配" in err
+
+    def test_empty_fn_in_skipped(self):
+        csv_text = "FileName,Title\n,T\nb.cbz,T2\n"
+        result, err = preview_rename_by_rule(["b.cbz"], csv_text, True, "{Title}")
+        assert err == ""
+        assert len(result) == 1
+
+    def test_empty_base_falls_back_to_old_name(self):
+        csv_text = "FileName,Title\na.cbz,\n"
+        result, err = preview_rename_by_rule(["a.cbz"], csv_text, True, "{Title:3}")
+        assert err == ""
+        assert result[0][1] == "a.cbz.cbz"
+
+    def test_conflict_suffix(self):
+        csv_text = "FileName,Title\na.cbz,T\nb.cbz,T\n"
+        result, err = preview_rename_by_rule(
+            ["a.cbz", "b.cbz"], csv_text, True, "{Title}", ws_replace_char="", conflict_mode="suffix"
+        )
+        assert err == ""
+        assert len(result) == 2
+        names = [p[1] for p in result]
+        assert names[0] != names[1]
+        assert "(" in names[1]
+
+    def test_conflict_skip(self):
+        csv_text = "FileName,Title\na.cbz,T\nb.cbz,T\n"
+        result, err = preview_rename_by_rule(
+            ["a.cbz", "b.cbz"], csv_text, True, "{Title}", ws_replace_char="", conflict_mode="skip"
+        )
+        assert err == ""
+        assert len(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# rename_archives_by_rule edge cases
+# ---------------------------------------------------------------------------
+
+class TestRenameArchivesByRuleExtra:
+    def test_csv_is_empty(self, tmp_path):
+        csv_text, log, arch = rename_archives_by_rule(
+            ["a.cbz"], str(tmp_path), "", True, "{Title}"
+        )
+        assert "CSV 为空" in log
+
+    def test_no_header_in_csv(self, tmp_path):
+        archive = str(tmp_path / "a.cbz")
+        zipfile.ZipFile(archive, "w").close()
+        csv_text, log, arch = rename_archives_by_rule(
+            [archive], str(tmp_path), "a.cbz,T", False, "{Title}"
+        )
+        assert "已重命名" in log or "改名完成" in log
+
+    def test_skip_missing_archive(self, tmp_path):
+        archive = str(tmp_path / "a.cbz")
+        zipfile.ZipFile(archive, "w").close()
+        csv_text = "FileName,Title\na.cbz,T1\nb.cbz,T2\n"
+        csv_text_result, log, new_archives = rename_archives_by_rule(
+            [archive], str(tmp_path), csv_text, True, "{Title}"
+        )
+        assert "跳过" in log or "改名完成" in log
+
+    def test_no_processed_entries(self, tmp_path):
+        archive = str(tmp_path / "a.cbz")
+        zipfile.ZipFile(archive, "w").close()
+        csv_text = "FileName,Title\nx.cbz,T\n"
+        csv_text_result, log, new_archives = rename_archives_by_rule(
+            [archive], str(tmp_path), csv_text, True, "{Title}"
+        )
+        assert "无匹配" in log
+
+    def test_empty_base_fallback(self, tmp_path):
+        archive = str(tmp_path / "a.cbz")
+        zipfile.ZipFile(archive, "w").close()
+        csv_text = "FileName,Title\na.cbz,\n"
+        csv_text_result, log, new_archives = rename_archives_by_rule(
+            [archive], str(tmp_path), csv_text, True, "{Title}", ws_replace_char=""
+        )
+        assert "已重命名" in log or "改名完成" in log
+
+    def test_conflict_skip_mode(self, tmp_path):
+        a1 = str(tmp_path / "a.cbz")
+        a2 = str(tmp_path / "b.cbz")
+        zipfile.ZipFile(a1, "w").close()
+        zipfile.ZipFile(a2, "w").close()
+        csv_text = "FileName,Title\na.cbz,T\nb.cbz,T\n"
+        csv_text_result, log, new_archives = rename_archives_by_rule(
+            [a1, a2], str(tmp_path), csv_text, True, "{Title}", ws_replace_char="", conflict_mode="skip"
+        )
+        assert "跳过(冲突)" in log
+
+    def test_rename_oserror(self, tmp_path, monkeypatch):
+        archive = str(tmp_path / "a.cbz")
+        zipfile.ZipFile(archive, "w").close()
+
+        original_rename = os.rename
+        call_count = 0
+
+        def failing_rename(src, dst):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise OSError("rename failed")
+            return original_rename(src, dst)
+
+        monkeypatch.setattr(os, "rename", failing_rename)
+        csv_text = "FileName,Title\na.cbz,T\n"
+        csv_text_result, log, new_archives = rename_archives_by_rule(
+            [archive], str(tmp_path), csv_text, True, "{Title}", ws_replace_char=""
+        )
+        assert "重命名失败" in log

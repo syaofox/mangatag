@@ -31,3 +31,8 @@ python_version = "3.13"
 strict = false
 ignore_missing_imports = true
 disable_error_code = ["arg-type", "assignment"]
+
+[dependency-groups]
+dev = [
+    "pytest-cov>=7.1.0",
+]

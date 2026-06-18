@@ -49,3 +49,19 @@ def test_index_page_shows_version():
     assert resp.status_code == 200
     version = _get_version()
     assert f"v{version}" in resp.text
+
+
+def test_favicon_returns_svg():
+    client = TestClient(app)
+    resp = client.get("/favicon.ico")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/svg+xml"
+    assert b"<svg" in resp.content
+    assert b"M</text>" in resp.content
+
+
+def test_index_page_links_favicon():
+    client = TestClient(app)
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert '<link rel="icon" type="image/svg+xml" href="/favicon.ico" />' in resp.text

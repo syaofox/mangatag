@@ -215,6 +215,18 @@ def _get_version() -> str:
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    """返回内联 SVG favicon。"""
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
+        '<rect width="32" height="32" rx="6" fill="#2563eb"/>'
+        '<text x="16" y="22" text-anchor="middle" font-family="sans-serif"'
+        ' font-weight="700" font-size="18" fill="#fff">M</text></svg>'
+    )
+    return Response(content=svg, media_type="image/svg+xml")
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """主页面：编辑压缩包内 XML。启动时不显示上次的日志，始终清空。"""

@@ -232,9 +232,9 @@ async def index(request: Request):
     """主页面：编辑压缩包内 XML。启动时不显示上次的日志，始终清空。"""
     default_base_path = ALLOWED_BASE_PATHS[0] if ALLOWED_BASE_PATHS else ""
     return templates.TemplateResponse(
+        request,
         "edit_xml.html",
         {
-            "request": request,
             "csv_text": "",
             "scan_log": "",
             "save_log": "",
@@ -391,9 +391,9 @@ async def post_scan(
         session["archives"] = []
         session["comic_dir"] = ""
         return templates.TemplateResponse(
+            request,
             "partials/scan_result.html",
             {
-                "request": request,
                 "scan_log": session["scan_log"],
                 "csv_text": "",
                 "scan_token": "",
@@ -428,9 +428,9 @@ async def post_scan(
         "ts": time.time(),
     }
     return templates.TemplateResponse(
+        request,
         "partials/scan_result.html",
         {
-            "request": request,
             "scan_log": scan_log,
             "csv_text": csv_text,
             "scan_token": scan_token,
@@ -548,9 +548,9 @@ async def post_save(
     if not archives:
         session["save_log"] = "请先扫描目录以建立压缩包顺序。"
         return templates.TemplateResponse(
+            request,
             "partials/save_log.html",
             {
-                "request": request,
                 "save_log": session["save_log"],
                 "scan_log": session.get("scan_log", ""),
             },
@@ -558,9 +558,9 @@ async def post_save(
     if not ensure_archives_allowed(archives):
         session["save_log"] = "错误：扫描到的压缩包路径不在允许范围内。"
         return templates.TemplateResponse(
+            request,
             "partials/save_log.html",
             {
-                "request": request,
                 "save_log": session["save_log"],
                 "scan_log": session.get("scan_log", ""),
             },
@@ -572,9 +572,9 @@ async def post_save(
     save_log, _ = save_archives(archives, csv_text or "", include, check, orig_rows)
     session["save_log"] = save_log
     return templates.TemplateResponse(
+        request,
         "partials/save_log.html",
         {
-            "request": request,
             "save_log": save_log,
             "scan_log": session.get("scan_log", ""),
         },
@@ -715,8 +715,9 @@ async def post_import(
         except Exception:
             csv_text = ""
     return templates.TemplateResponse(
+        request,
         "partials/csv_area_import.html",
-        {"request": request, "csv_text": csv_text or "", "csv_headers": CSV_HEADERS},
+        {"csv_text": csv_text or "", "csv_headers": CSV_HEADERS},
     )
 
 
@@ -758,8 +759,9 @@ async def post_batch_edit(
         else:
             out = batch_convert_all(csv_text, include, "s2t")
     return templates.TemplateResponse(
+        request,
         "partials/csv_area.html",
-        {"request": request, "csv_text": out, "csv_headers": CSV_HEADERS},
+        {"csv_text": out, "csv_headers": CSV_HEADERS},
     )
 
 

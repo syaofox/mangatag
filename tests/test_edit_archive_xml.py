@@ -295,9 +295,14 @@ class TestStripOptionalHeader:
     def test_empty(self):
         assert strip_optional_header([], True) == []
 
-    def test_always_strips(self):
+    def test_respects_include_header_flag(self):
+        """当 include_header=False 时不剥离首行，即使首列是 FileName。"""
         rows = [["FileName"], ["ch01.cbz"]]
-        assert strip_optional_header(rows, False) == [["ch01.cbz"]]
+        assert strip_optional_header(rows, False) == rows
+
+    def test_strips_when_flag_is_true(self):
+        rows = [["FileName", "Title"], ["ch01.cbz", "T"]]
+        assert strip_optional_header(rows, True) == [["ch01.cbz", "T"]]
 
 
 # ---------------------------------------------------------------------------
@@ -1161,3 +1166,137 @@ class TestRenameArchivesByRuleExtra:
             [archive], str(tmp_path), csv_text, True, "{Title}", ws_replace_char=""
         )
         assert "重命名失败" in log
+
+
+# ---------------------------------------------------------------------------
+# _strip_bom
+# ---------------------------------------------------------------------------
+
+class TestStripBom:
+    def test_no_bom(self):
+        from edit_archive_xml import _strip_bom
+        assert _strip_bom("hello") == "hello"
+
+    def test_with_bom(self):
+        from edit_archive_xml import _strip_bom
+        assert _strip_bom("\ufeffhello") == "hello"
+
+    def test_empty_string(self):
+        from edit_archive_xml import _strip_bom
+        assert _strip_bom("") == ""
+
+    def test_none_becomes_empty(self):
+        from edit_archive_xml import _strip_bom
+        assert _strip_bom("") == ""
+
+
+# ---------------------------------------------------------------------------
+# BOM handling in import_csv_content
+# ---------------------------------------------------------------------------
+
+class TestImportCsvContentBom:
+    def test_bom_is_stripped(self):
+        bom = "\ufeff"
+        csv_content = bom + "FileName,Title\nch01.cbz,T\n"
+        result = import_csv_content(csv_content, True)
+        assert "FileName" in result
+        assert "\ufeff" not in result
+
+    def test_bom_with_bytes(self):
+        bom = "\ufeff"
+        csv_content = (bom + "FileName,Title\nch01.cbz,T\n").encode("utf-8")
+        result = import_csv_content(csv_content, True)
+        assert "FileName" in result
+        assert "\ufeff" not in result
+
+    def test_bom_stripped_before_header_detection(self):
+        """带 BOM 的首行应正确识别为表头。"""
+        bom = "\ufeff"
+        headers = ",".join(CSV_HEADERS)
+        csv_content = bom + headers + "\nch01.cbz,T,S,1,,,,,,,,,\n"
+        result = import_csv_content(csv_content, False)
+        # 不带 BOM 后表头应正确匹配并被剥离，结果不应包含 "FileName"
+        assert "FileName" not in result
+
+    def test_bom_in_save_path(self, tmp_path):
+        """BOM 不应影响 _save_archives_iter 的 CSV 解析。"""
+        xml = build_xml_from_fields({"Title": "T", "Series": "S"})
+        _make_archive(str(tmp_path / "ch01.cbz"), xml)
+        archives = [str(tmp_path / "ch01.cbz")]
+        bom = "\ufeff"
+        h = ",".join(CSV_HEADERS)
+        csv_text = bom + h + "\nch01.cbz,T,S,1,,,,,,,,,\n"
+        log, success = save_archives(archives, csv_text, True, True)
+        assert success, log
+
+    def test_bom_in_batch_apply(self):
+        bom = "\ufeff"
+        csv_text = bom + "FileName,Title\nch01.cbz,Old\n"
+        result = batch_set(csv_text, True, ["Title"], "New")
+        assert "New" in result
+
+    def test_bom_in_export_csv(self):
+        bom = "\ufeff"
+        csv_text = bom + "FileName,Title\nch01.cbz,T\n"
+        data, filename = export_csv(csv_text, True, "dir", [])
+        text = data.decode("utf-8")
+        assert "\ufeff" not in text
+        assert "FileName" in text
+
+
+# ---------------------------------------------------------------------------
+# Rename rollback cleanup
+# ---------------------------------------------------------------------------
+
+class TestRenameRollbackCleanup:
+    def test_rollback_removes_temp_file_on_failure(self, tmp_path, monkeypatch):
+        archive = str(tmp_path / "a.cbz")
+        zipfile.ZipFile(archive, "w").close()
+
+        rename_count = 0
+        original_rename = os.rename
+
+        def failing_rename(src, dst):
+            nonlocal rename_count
+            rename_count += 1
+            if rename_count == 1:
+                return original_rename(src, dst)  # first rename succeeds
+            raise OSError("second rename fails")  # second fails
+
+        monkeypatch.setattr(os, "rename", failing_rename)
+
+        csv_text = "FileName,Title\na.cbz,T1\nb.cbz,T2\n"
+        _, log, _ = rename_archives_by_rule(
+            [archive], str(tmp_path), csv_text, True, "{Title}", ws_replace_char=""
+        )
+        # 检查临时文件是否被清理
+        temp_files = [f for f in os.listdir(tmp_path) if f.startswith(".mangatag_rename_")]
+        assert len(temp_files) == 0, f"残留临时文件: {temp_files}"
+
+    def test_final_rename_cleanup_temp(self, tmp_path, monkeypatch):
+        archive = str(tmp_path / "a.cbz")
+        zipfile.ZipFile(archive, "w").close()
+
+        rename_count = 0
+        original_rename = os.rename
+
+        def failing_rename(src, dst):
+            nonlocal rename_count
+            rename_count += 1
+            # First rename (temp) succeeds, second (final) fails
+            if rename_count == 1:
+                return original_rename(src, dst)
+            if rename_count == 2:
+                raise OSError("final rename fails")
+            return original_rename(src, dst)
+
+        monkeypatch.setattr(os, "rename", failing_rename)
+
+        csv_text = "FileName,Title\na.cbz,NewName\n"
+        _, log, _ = rename_archives_by_rule(
+            [archive], str(tmp_path), csv_text, True, "{Title}", ws_replace_char=""
+        )
+        assert "重命名失败" in log
+        # 检查临时文件是否被清理
+        temp_files = [f for f in os.listdir(tmp_path) if f.startswith(".mangatag_rename_")]
+        assert len(temp_files) == 0, f"残留临时文件: {temp_files}"

@@ -19,6 +19,8 @@
   document.getElementById('csv_text').value = initialCsv;
   function parseCSV(text) {
     if (!text || !text.trim()) return { headers: CSV_HEADERS.slice(), rows: [] };
+    // 去除 UTF-8 BOM
+    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
     var rows = [];
     var i = 0, len = text.length;
     function skipWs() { while (i < len && (text[i] === ' ' || text[i] === '\t')) i++; }

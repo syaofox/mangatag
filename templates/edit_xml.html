@@ -336,8 +336,8 @@
       });
     })();
 
-    // 扫描：流式请求 /scan-stream，逐条追加到扫描日志；
-    // 同时通过 /scan-json 拉取 CSV 文本并直接刷新表格与 scan_token。
+    // 扫描：通过 /scan-json 一次性获取结果（含 CSV 文本、扫描日志、token）。
+    // 不再重复调用 /scan-stream，避免两次全量扫描。
     (function() {
       var scanBtn = document.getElementById('scan-btn');
       if (!scanBtn) return;
@@ -351,45 +351,12 @@
         var includeHeaderVal = includeHeaderCb && includeHeaderCb.checked ? 'true' : 'false';
         var sortModeVal = sortModeEl ? sortModeEl.value : '按数字大小顺序';
 
-        var formData1 = new FormData();
-        formData1.append('comic_dir', comicDir);
-        formData1.append('include_header', includeHeaderVal);
-        formData1.append('sort_mode', sortModeVal);
+        var formData = new FormData();
+        formData.append('comic_dir', comicDir);
+        formData.append('include_header', includeHeaderVal);
+        formData.append('sort_mode', sortModeVal);
 
-        // 1）流式日志
-        fetch('/scan-stream', { method: 'POST', body: formData1 })
-          .then(function(res) {
-            if (!res.body) return;
-            var reader = res.body.getReader();
-            var decoder = new TextDecoder();
-            function read() {
-              return reader.read().then(function(opt) {
-                if (opt.done) return;
-                var text = decoder.decode(opt.value, { stream: true });
-                if (unifiedLogEl) {
-                  // 若是第一次块并且仍然是「扫描中…」，先清空
-                  if (unifiedLogEl.textContent === '扫描中…') {
-                    unifiedLogEl.textContent = '';
-                  }
-                  unifiedLogEl.textContent += text;
-                }
-                return read();
-              });
-            }
-            return read();
-          })
-          .catch(function(err) {
-            if (unifiedLogEl) {
-              unifiedLogEl.textContent = (unifiedLogEl.textContent || '') + '\n请求失败: ' + err.message;
-            }
-          });
-
-        // 2）JSON 结果：直接刷新 CSV 表格与 scan_token
-        var formData2 = new FormData();
-        formData2.append('comic_dir', comicDir);
-        formData2.append('include_header', includeHeaderVal);
-        formData2.append('sort_mode', sortModeVal);
-        fetch('/scan-json', { method: 'POST', body: formData2 })
+        fetch('/scan-json', { method: 'POST', body: formData })
           .then(function(res) { return res.json(); })
           .then(function(data) {
             if (!data || !data.ok) {
@@ -397,6 +364,9 @@
                 unifiedLogEl.textContent = data.error;
               }
               return;
+            }
+            if (unifiedLogEl && data.scan_log) {
+              unifiedLogEl.textContent = data.scan_log;
             }
             var csv = data.csv_text || '';
             var ta = document.getElementById('csv_text');
@@ -411,7 +381,7 @@
           })
           .catch(function(err) {
             if (unifiedLogEl) {
-              unifiedLogEl.textContent = (unifiedLogEl.textContent || '') + '\n获取 CSV 结果失败: ' + err.message;
+              unifiedLogEl.textContent = (unifiedLogEl.textContent || '') + '\n请求失败: ' + err.message;
             }
           });
       });

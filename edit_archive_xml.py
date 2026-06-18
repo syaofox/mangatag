@@ -317,7 +317,14 @@ def scan_archives(
     return (output.getvalue(), "\n".join(logs), archives)
 
 
+def _strip_bom(text: str) -> str:
+    """去除 UTF-8 BOM 字符。"""
+    return text.lstrip("\ufeff") if text else text
+
+
 def strip_optional_header(rows: list[list[str]], include_header: bool) -> list[list[str]]:
+    if not include_header:
+        return rows
     if not rows:
         return rows
     first_row = [c.strip() for c in rows[0]]
@@ -351,6 +358,7 @@ def _save_archives_iter(
     """
     将 CSV 内容写回各压缩包，逐条生成日志行（供 save_archives 和 save_archives_streaming 复用）。
     """
+    csv_text = _strip_bom(csv_text)
     if not csv_text:
         yield ("error", "无可保存的内容")
         return
@@ -497,6 +505,7 @@ def export_csv(
     返回 (csv_bytes, suggested_filename)，其中文件名优先使用当前章节压缩包目录名 + .csv。
     """
 
+    csv_text = _strip_bom(csv_text or "")
     text = csv_text or ""
     if not text.strip() and archives:
         out = io.StringIO()
@@ -557,6 +566,7 @@ def import_csv_content(file_content: bytes | str, include_header: bool) -> str:
             content = file_content.decode("utf-8", errors="ignore")
     else:
         content = file_content or ""
+    content = _strip_bom(content)
     rows = list(csv.reader(io.StringIO(content)))
     if not include_header and rows and [c.strip() for c in rows[0]] == CSV_HEADERS:
         out = io.StringIO()
@@ -600,6 +610,7 @@ def _batch_apply(
     row_mutator: Any,
 ) -> str:
     """row_mutator(row: list[str], indices: list[int]) -> list[str]."""
+    csv_text = _strip_bom(csv_text)
     if not csv_text or not selected_columns:
         return csv_text
     try:
@@ -823,6 +834,7 @@ def preview_rename_by_rule(
     返回 ([(old_name, new_name), ...], error_message)。
     成功时 error_message 为空；失败时列表可为空。
     """
+    csv_text = _strip_bom(csv_text)
     if not rule or not rule.strip():
         return ([], "错误：规则不能为空")
     if not archives:
@@ -903,8 +915,9 @@ def rename_archives_by_rule(
     """
     根据命名规则批量重命名压缩包文件，并更新 CSV 的 FileName 列。
     规则支持 {列名} 和 {列名:N} 占位符；N 为数字时前面补 0。
-    返回 (new_csv_text, log, new_archives)。
+
     """
+    csv_text = _strip_bom(csv_text)
     logs: list[str] = []
     if not rule or not rule.strip():
         return (csv_text, "错误：规则不能为空", archives)
@@ -990,12 +1003,15 @@ def rename_archives_by_rule(
             temp_paths.append((ap, temp_path))
         except OSError as e:
             logs.append(f"重命名失败：{os.path.basename(ap)} -> {e}")
-            # 回滚已重命名的
+            # 回滚已重命名的，残留临时文件则清理
             for old_p, tmp_p in temp_paths:
                 try:
                     os.rename(tmp_p, old_p)
                 except OSError:
-                    pass
+                    try:
+                        os.remove(tmp_p)
+                    except OSError:
+                        pass
             return (csv_text, "\n".join(logs), archives)
 
     renamed_old_to_new: dict[str, str] = {}
@@ -1014,7 +1030,10 @@ def rename_archives_by_rule(
             try:
                 os.rename(temp_path, old_path)
             except OSError:
-                pass
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
 
     new_archives = [renamed_old_to_new.get(ap, ap) for ap in archives]
 

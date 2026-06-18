@@ -34,7 +34,7 @@ WORKDIR /app
 
 # 复制虚拟环境与源码（路径一致，.venv 内脚本可正常执行）
 COPY --from=builder /app/.venv /app/.venv
-COPY --from=builder /app/app.py /app/edit_archive_xml.py /app/update_archives_with_xml.py ./
+COPY --from=builder /app/pyproject.toml /app/app.py /app/edit_archive_xml.py /app/update_archives_with_xml.py ./
 COPY --from=builder /app/templates /app/templates
 COPY --from=builder /app/static /app/static
 

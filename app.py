@@ -1,21 +1,20 @@
 """
 FastAPI + HTMX 前端：编辑压缩包内 ComicInfo.xml。
 """
+import csv
+import io
 import os
 import re
 import time
-import uuid
 import urllib.parse
+import uuid
 from pathlib import Path
-import csv
-import io
-
-from starlette.responses import StreamingResponse
 
 from fastapi import FastAPI, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.responses import StreamingResponse
 from starlette.templating import Jinja2Templates
 
 try:
@@ -33,15 +32,14 @@ from edit_archive_xml import (
     batch_set,
     batch_suffix,
     export_csv,
-    extract_headers,
     import_csv_content,
     list_dirs_with_archives,
+    opencc,
     preview_rename_by_rule,
     rename_archives_by_rule,
-    scan_archives,
     save_archives,
     save_archives_streaming,
-    opencc,
+    scan_archives,
 )
 
 # 允许的根目录（逗号分隔）；未配置时不做限制，仅校验路径存在（适合本地使用）
@@ -238,10 +236,42 @@ async def index(request: Request):
 
 
 def _browse_root() -> str:
-    """获取浏览器的根路径。"""
+    """获取浏览器的根路径（取第一条白名单路径，未配置时取当前工作目录）。"""
     if ALLOWED_BASE_PATHS:
         return os.path.abspath(os.path.normpath(ALLOWED_BASE_PATHS[0]))
     return os.path.abspath(os.getcwd())
+
+
+def _is_path_under_any_allowed(path: str) -> bool:
+    """判断路径是否在某条白名单路径下（含自身）。"""
+    if not ALLOWED_BASE_PATHS:
+        return True
+    path_abs = os.path.abspath(os.path.normpath(path))
+    for base in ALLOWED_BASE_PATHS:
+        base_abs = os.path.abspath(os.path.normpath(base))
+        try:
+            if path_abs == base_abs or os.path.commonpath([path_abs, base_abs]) == base_abs:
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def _clamp_parent_to_allowed(parent: str | None, current: str) -> str | None:
+    """将父目录限制在白名单范围内；若父目录不在任何白名单路径下则返回 None。"""
+    if parent is None:
+        return None
+    if not ALLOWED_BASE_PATHS:
+        return parent
+    if not _is_path_under_any_allowed(parent):
+        return None
+    # 如果 current 就是某条白名单的根，不允许再往上
+    if _is_path_under_any_allowed(current):
+        for base in ALLOWED_BASE_PATHS:
+            base_abs = os.path.abspath(os.path.normpath(base))
+            if os.path.normpath(current) == base_abs:
+                return None
+    return parent
 
 
 @app.get("/api/browse")
@@ -258,15 +288,7 @@ async def api_browse(path: str = ""):
 
     parent = os.path.dirname(current) if current != os.path.dirname(current) else None
     if ALLOWED_BASE_PATHS:
-        base_abs = os.path.abspath(os.path.normpath(ALLOWED_BASE_PATHS[0]))
-        if parent and parent != current:
-            try:
-                if os.path.commonpath([parent, base_abs]) != base_abs and parent != base_abs:
-                    parent = None
-            except ValueError:
-                parent = None
-        if current == base_abs:
-            parent = None
+        parent = _clamp_parent_to_allowed(parent, current)
 
     entries: list[dict] = []
     try:
@@ -608,11 +630,11 @@ async def post_save_stream(request: Request):
         archives = session.get("archives") or []
     if not archives:
         def err():
-            yield "请先扫描目录以建立压缩包顺序。\n".encode("utf-8")
+            yield "请先扫描目录以建立压缩包顺序。\n".encode()
         return StreamingResponse(err(), media_type="text/plain; charset=utf-8")
     if not ensure_archives_allowed(archives):
         def err():
-            yield "错误：扫描到的压缩包路径不在允许范围内。\n".encode("utf-8")
+            yield "错误：扫描到的压缩包路径不在允许范围内。\n".encode()
         return StreamingResponse(err(), media_type="text/plain; charset=utf-8")
 
     include = str(include_raw).lower() in ("1", "true", "yes", "on")

@@ -128,7 +128,7 @@ def write_xml_to_archive(archive_path: str, xml_bytes: bytes) -> bool:
                 if os.path.exists(tmp_path):
                     try:
                         os.remove(tmp_path)
-                    except Exception:
+                    except OSError:
                         pass
     except Exception:
         return False
@@ -173,13 +173,13 @@ def list_dirs_with_archives(base_path: str) -> list[str]:
                             if sub_name.lower().endswith((".zip", ".cbz")):
                                 has_archive = True
                                 break
-                    except Exception:
+                    except OSError:
                         continue
                     if has_archive:
                         entries.append(os.path.relpath(full_path, base_path))
                     else:
                         entries.extend(scan(full_path))
-        except Exception:
+        except OSError:
             pass
         return entries
 
@@ -246,14 +246,15 @@ def scan_archives(
     archives = list_archives(comic_dir)
     cached_fields: dict[str, dict] = {}
 
+    for ap in archives:
+        try:
+            xml_bytes = read_xml_from_archive(ap)
+            if xml_bytes is not None:
+                cached_fields[ap] = parse_xml_fields(xml_bytes)
+        except Exception:
+            pass
+
     if sort_mode == "按Number列数字大小排序":
-        for ap in archives:
-            try:
-                xml_bytes = read_xml_from_archive(ap)
-                if xml_bytes is not None:
-                    cached_fields[ap] = parse_xml_fields(xml_bytes)
-            except Exception:
-                pass
         archives = _sort_by_number_field(archives, cached_fields)
     else:
         archives = sort_archives(archives, sort_mode)
@@ -272,7 +273,7 @@ def scan_archives(
                 logs.append(f"  [{typ}] {name} (ext={ext})")
             if len(entries) > len(preview):
                 logs.append(f"  ... 共 {len(entries)} 项，仅显示前 {len(preview)} 项。")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logs.append(f"调试：列举目录内容失败：{e!r}")
 
     output = io.StringIO()
@@ -319,8 +320,8 @@ def scan_archives(
 def strip_optional_header(rows: list[list[str]], include_header: bool) -> list[list[str]]:
     if not rows:
         return rows
-    first_row = [c.strip() for c in rows[0]] if rows else []
-    if (include_header and first_row[:1] == ["FileName"]) or (rows and first_row[:1] == ["FileName"]):
+    first_row = [c.strip() for c in rows[0]]
+    if first_row[:1] == ["FileName"]:
         return rows[1:]
     return rows
 
@@ -340,22 +341,22 @@ def _fields_equal(a: dict[str, Any], b: dict[str, Any]) -> bool:
     return True
 
 
-def save_archives(
+def _save_archives_iter(
     archives: list[str],
     csv_text: str,
     include_header: bool,
     check_count: bool,
     original_rows: dict[str, list[str]] | None = None,
-) -> tuple[str, bool]:
+):
     """
-    将 CSV 内容写回各压缩包；仅对 ComicInfo 有改动的文档执行写入。
-    返回 (save_log, success)。
+    将 CSV 内容写回各压缩包，逐条生成日志行（供 save_archives 和 save_archives_streaming 复用）。
     """
-    logs: list[str] = []
     if not csv_text:
-        return ("无可保存的内容", False)
+        yield ("error", "无可保存的内容")
+        return
     if not archives:
-        return ("请先扫描目录以建立压缩包顺序", False)
+        yield ("error", "请先扫描目录以建立压缩包顺序")
+        return
 
     reader = csv.reader(io.StringIO(csv_text))
     rows = list(reader)
@@ -376,7 +377,8 @@ def save_archives(
             row_map[fn] = r
 
     if duplicates:
-        return (f"CSV 文件名重复：{len(duplicates)} 个，例如 {sorted(duplicates)[:3]} ...。已取消保存。", False)
+        yield ("error", f"CSV 文件名重复：{len(duplicates)} 个，例如 {sorted(duplicates)[:3]} ...。已取消保存。")
+        return
 
     archive_names = [os.path.basename(a) for a in archives]
     set_archives = set(archive_names)
@@ -386,35 +388,39 @@ def save_archives(
 
     if check_count:
         if missing:
-            return (f"CSV 缺少以下文件名（共 {len(missing)}）：{', '.join(missing[:3])} ...。已取消保存。", False)
+            sample = ", ".join(missing[:3])
+            yield ("error", f"CSV 缺少以下文件名（共 {len(missing)}）：{sample} ...。已取消保存。")
+            return
         if extra:
-            return (f"CSV 包含未在扫描列表中的文件名（共 {len(extra)}）：{', '.join(extra[:3])} ...。已取消保存。", False)
+            sample = ", ".join(extra[:3])
+            yield ("error", f"CSV 包含未在扫描列表中的文件名（共 {len(extra)}）：{sample} ...。已取消保存。")
+            return
     else:
         if missing:
-            logs.append(f"提示：CSV 缺少 {len(missing)} 个文件，将跳过未提供行的文件。如：{', '.join(missing[:3])} ...")
+            sample = ", ".join(missing[:3])
+            yield ("log", f"提示：CSV 缺少 {len(missing)} 个文件，将跳过未提供行的文件。如：{sample} ...")
         if extra:
-            logs.append(f"提示：CSV 包含 {len(extra)} 个额外行（非扫描文件），将忽略。如：{', '.join(extra[:3])} ...")
+            sample = ", ".join(extra[:3])
+            yield ("log", f"提示：CSV 包含 {len(extra)} 个额外行（非扫描文件），将忽略。如：{sample} ...")
 
     total = len(archives)
     for idx, ap in enumerate(archives):
         name = os.path.basename(ap)
         row = row_map.get(name)
         if row is None:
-            logs.append(f"[{idx+1}/{total}] 跳过：CSV 未提供对应行 -> {name}")
+            yield ("log", f"[{idx+1}/{total}] 跳过：CSV 未提供对应行 -> {name}")
             continue
         if len(row) < 12:
             row = row + [""] * (12 - len(row))
 
-        # 若提供了扫描时的原始行，且当前行与原始行完全一致，则视为未改动，跳过写入
         if original_rows is not None:
             orig = original_rows.get(name)
             if orig is not None:
-                # 对齐长度后比较，忽略尾部缺失列带来的差异
                 max_len = max(len(row), len(orig))
                 cur = row + [""] * (max_len - len(row))
                 ori = orig + [""] * (max_len - len(orig))
                 if cur == ori:
-                    logs.append(f"[{idx+1}/{total}] 跳过(与扫描时内容一致): {name}")
+                    yield ("log", f"[{idx+1}/{total}] 跳过(与扫描时内容一致): {name}")
                     continue
 
         new_fields = {
@@ -434,17 +440,36 @@ def save_archives(
         if old_xml is not None:
             old_fields = parse_xml_fields(old_xml)
             if _fields_equal(old_fields, new_fields):
-                logs.append(f"[{idx+1}/{total}] 跳过(无改动): {name}")
+                yield ("log", f"[{idx+1}/{total}] 跳过(无改动): {name}")
                 continue
         xml_bytes = build_xml_from_fields(new_fields)
         ok = write_xml_to_archive(ap, xml_bytes)
         if ok:
-            logs.append(f"[{idx+1}/{total}] 已保存: {name}")
+            yield ("log", f"[{idx+1}/{total}] 已保存: {name}")
         else:
-            logs.append(f"[{idx+1}/{total}] 失败: {name}")
+            yield ("log", f"[{idx+1}/{total}] 失败: {name}")
 
-    logs.append("保存完成")
-    return ("\n".join(logs), True)
+    yield ("log", "保存完成")
+
+
+def save_archives(
+    archives: list[str],
+    csv_text: str,
+    include_header: bool,
+    check_count: bool,
+    original_rows: dict[str, list[str]] | None = None,
+) -> tuple[str, bool]:
+    """
+    将 CSV 内容写回各压缩包；仅对 ComicInfo 有改动的文档执行写入。
+    返回 (save_log, success)。
+    """
+    logs: list[str] = []
+    success = True
+    for kind, msg in _save_archives_iter(archives, csv_text, include_header, check_count, original_rows):
+        logs.append(msg)
+        if kind == "error":
+            success = False
+    return ("\n".join(logs), success)
 
 
 def save_archives_streaming(
@@ -458,101 +483,8 @@ def save_archives_streaming(
     将 CSV 内容写回各压缩包，逐条 yield 日志行（用于流式输出）。
     仅对 ComicInfo 有改动的文档执行写入。
     """
-    if not csv_text:
-        yield "无可保存的内容"
-        return
-    if not archives:
-        yield "请先扫描目录以建立压缩包顺序"
-        return
-
-    reader = csv.reader(io.StringIO(csv_text))
-    rows = list(reader)
-    rows = strip_optional_header(rows, include_header)
-    rows = prune_trailing_empty_rows(rows)
-
-    row_map: dict[str, list[str]] = {}
-    duplicates: set[str] = set()
-    for r in rows:
-        if not r:
-            continue
-        fn = (r[0] if len(r) > 0 else "").strip()
-        if not fn:
-            continue
-        if fn in row_map:
-            duplicates.add(fn)
-        else:
-            row_map[fn] = r
-
-    if duplicates:
-        yield f"CSV 文件名重复：{len(duplicates)} 个，例如 {sorted(duplicates)[:3]} ...。已取消保存。"
-        return
-
-    archive_names = [os.path.basename(a) for a in archives]
-    set_archives = set(archive_names)
-    set_csv = set(row_map.keys())
-    missing = sorted(set_archives - set_csv)
-    extra = sorted(set_csv - set_archives)
-
-    if check_count:
-        if missing:
-            yield f"CSV 缺少以下文件名（共 {len(missing)}）：{', '.join(missing[:3])} ...。已取消保存。"
-            return
-        if extra:
-            yield f"CSV 包含未在扫描列表中的文件名（共 {len(extra)}）：{', '.join(extra[:3])} ...。已取消保存。"
-            return
-    else:
-        if missing:
-            yield f"提示：CSV 缺少 {len(missing)} 个文件，将跳过未提供行的文件。如：{', '.join(missing[:3])} ..."
-        if extra:
-            yield f"提示：CSV 包含 {len(extra)} 个额外行（非扫描文件），将忽略。如：{', '.join(extra[:3])} ..."
-
-    total = len(archives)
-    for idx, ap in enumerate(archives):
-        name = os.path.basename(ap)
-        row = row_map.get(name)
-        if row is None:
-            yield f"[{idx+1}/{total}] 跳过：CSV 未提供对应行 -> {name}"
-            continue
-        if len(row) < 12:
-            row = row + [""] * (12 - len(row))
-
-        # 若提供了扫描时的原始行，且当前行与原始行完全一致，则视为未改动，跳过写入
-        if original_rows is not None:
-            orig = original_rows.get(name)
-            if orig is not None:
-                max_len = max(len(row), len(orig))
-                cur = row + [""] * (max_len - len(row))
-                ori = orig + [""] * (max_len - len(orig))
-                if cur == ori:
-                    yield f"[{idx+1}/{total}] 跳过(与扫描时内容一致): {name}"
-                    continue
-        new_fields = {
-            "Title": row[1],
-            "Series": row[2],
-            "Number": row[3],
-            "Summary": row[4],
-            "Writer": row[5],
-            "Genre": row[6],
-            "Web": row[7],
-            "PublishingStatusTachiyomi": row[8],
-            "SourceMihon": row[9],
-            "PublicationYear": row[10],
-            "PublicationMonth": row[11],
-        }
-        old_xml = read_xml_from_archive(ap)
-        if old_xml is not None:
-            old_fields = parse_xml_fields(old_xml)
-            if _fields_equal(old_fields, new_fields):
-                yield f"[{idx+1}/{total}] 跳过(无改动): {name}"
-                continue
-        xml_bytes = build_xml_from_fields(new_fields)
-        ok = write_xml_to_archive(ap, xml_bytes)
-        if ok:
-            yield f"[{idx+1}/{total}] 已保存: {name}"
-        else:
-            yield f"[{idx+1}/{total}] 失败: {name}"
-
-    yield "保存完成"
+    for _, msg in _save_archives_iter(archives, csv_text, include_header, check_count, original_rows):
+        yield msg
 
 
 def export_csv(
@@ -621,7 +553,7 @@ def import_csv_content(file_content: bytes | str, include_header: bool) -> str:
     if isinstance(file_content, bytes):
         try:
             content = file_content.decode("utf-8")
-        except Exception:
+        except UnicodeDecodeError:
             content = file_content.decode("utf-8", errors="ignore")
     else:
         content = file_content or ""
@@ -667,7 +599,7 @@ def _batch_apply(
     selected_columns: list[str],
     row_mutator: Any,
 ) -> str:
-    """row_mutator(row: list, indices: list[int]) -> list."""
+    """row_mutator(row: list[str], indices: list[int]) -> list[str]."""
     if not csv_text or not selected_columns:
         return csv_text
     try:
@@ -872,8 +804,9 @@ def _sanitize_filename(name: str, ws_replace_char: str) -> str:
     s = name.strip()
     if ws_replace_char:
         s = re.sub(r"\s+", ws_replace_char, s)
-    # 替换非法文件名字符（兼容 Windows/Linux）
     s = re.sub(r'[/\\:*?"<>|]', "_", s)
+    if not s or s in {".", ".."}:
+        return ""
     return s
 
 

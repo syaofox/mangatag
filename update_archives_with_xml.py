@@ -5,7 +5,6 @@ import sys
 import tempfile
 import zipfile
 from difflib import SequenceMatcher
-from typing import List, Optional, Tuple
 
 from lxml import etree
 
@@ -24,21 +23,21 @@ def fuzzy_ratio(a: str, b: str) -> float:
     return SequenceMatcher(None, normalize_text(a), normalize_text(b)).ratio()
 
 
-def classify_unit(text: str) -> Optional[str]:
+def classify_unit(text: str) -> str | None:
     """
     粗分类单位：卷 或 回/话。
     - 返回 'volume' 表示卷（包含“卷”）
     - 返回 'chapter' 表示章节（包含“回”、“話”、“话”）
     - 无法判断返回 None
     """
-    if re.search(r"卷", text):
+    if re.search(r"[卷巻]", text):
         return "volume"
     if re.search(r"[回話话]", text):
         return "chapter"
     return None
 
 
-def extract_chapter_index(text: str) -> Optional[Tuple[int, Optional[int]]]:
+def extract_chapter_index(text: str) -> tuple[int, int | None] | None:
     """
     从文本中提取章节编号 (main, sub)。
     兼容示例：
@@ -68,7 +67,7 @@ def extract_chapter_index(text: str) -> Optional[Tuple[int, Optional[int]]]:
         m = re.search(pat, cleaned)
         if m:
             main = int(m.group(1))
-            sub: Optional[int] = None
+            sub: int | None = None
             if len(m.groups()) >= 2 and m.group(2):
                 try:
                     sub = int(m.group(2))
@@ -78,7 +77,7 @@ def extract_chapter_index(text: str) -> Optional[Tuple[int, Optional[int]]]:
     return None
 
 
-def read_xml_title(xml_path: str) -> Optional[str]:
+def read_xml_title(xml_path: str) -> str | None:
     try:
         tree = etree.parse(xml_path)
         root = tree.getroot()
@@ -86,19 +85,19 @@ def read_xml_title(xml_path: str) -> Optional[str]:
         if title_elem is not None and (title := (title_elem.text or "").strip()):
             return title
         return None
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"读取 XML 失败: {xml_path}: {exc}")
         return None
 
 
-def discover_xmls(xml_root: str) -> List[Tuple[str, str, str]]:
+def discover_xmls(xml_root: str) -> list[tuple[str, str, str]]:
     """
     返回 (title, xml_path, chapter_folder_name) 列表。
     兼容目录结构：
     - xml_root/章节目录/ComicInfo.xml
     - xml_root/章节目录/xml/ComicInfo.xml
     """
-    items: List[Tuple[str, str, str]] = []
+    items: list[tuple[str, str, str]] = []
     if not os.path.isdir(xml_root):
         print(f"错误：XML 目录不存在 -> {xml_root}")
         return items
@@ -121,7 +120,7 @@ def discover_xmls(xml_root: str) -> List[Tuple[str, str, str]]:
     return items
 
 
-def list_archives(comic_dir: str) -> List[str]:
+def list_archives(comic_dir: str) -> list[str]:
     exts = {".cbz", ".zip"}
     return [
         os.path.join(comic_dir, f)
@@ -131,7 +130,7 @@ def list_archives(comic_dir: str) -> List[str]:
     ]
 
 
-def best_match(query: str, candidates: List[str]) -> Tuple[Optional[str], float]:
+def best_match(query: str, candidates: list[str]) -> tuple[str | None, float]:
     """
     先尝试基于章节索引匹配（精确优先），否则回退到模糊匹配。
     分数范围 0-1：
@@ -142,7 +141,7 @@ def best_match(query: str, candidates: List[str]) -> Tuple[Optional[str], float]
     query_idx = extract_chapter_index(query)
     query_unit = classify_unit(query)
 
-    best_path: Optional[str] = None
+    best_path: str | None = None
     best_score: float = 0.0
 
     # 按文件名排序遍历候选，确保在分数相同的情况下优先选择文件名靠前的压缩包（确定性行为）
@@ -250,9 +249,9 @@ def update_archive_with_xml(
                 if os.path.exists(tmp_path):
                     try:
                         os.remove(tmp_path)
-                    except Exception:
+                    except OSError:
                         pass
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"更新压缩包失败: {archive_path}: {exc}")
         return False
 
@@ -316,7 +315,7 @@ def main() -> None:
 
     for title, xml_path, chapter_folder in xml_items:
         # 计算不同策略下的最佳匹配
-        chosen_path: Optional[str] = None
+        chosen_path: str | None = None
         chosen_score: float = 0.0
         chosen_basis: str = ""
 
@@ -341,14 +340,16 @@ def main() -> None:
         # 保证一一对应：同一压缩包只允许被一个 XML 使用
         if chosen_path in used_archives:
             if args.verbose:
+                basename = os.path.basename(chosen_path)
                 print(
-                    f"跳过：目标压缩包已被占用 -> {os.path.basename(chosen_path)} | Title='{title}', Folder='{chapter_folder}'"
+                    f"跳过：目标压缩包已被占用 -> {basename} | Title='{title}', Folder='{chapter_folder}'"
                 )
             continue
         if args.verbose or args.dry_run:
             basis_desc = "标题" if chosen_basis == "title" else "章节文件夹名"
+            basename = os.path.basename(chosen_path)
             print(
-                f"匹配成功（{chosen_score:.2f}, 基于{basis_desc}）：'{title}' | '{chapter_folder}' -> {os.path.basename(chosen_path)}"
+                f"匹配成功（{chosen_score:.2f}, 基于{basis_desc}）：'{title}' | '{chapter_folder}' -> {basename}"
             )
 
         if update_archive_with_xml(
@@ -358,7 +359,8 @@ def main() -> None:
             used_archives.add(chosen_path)
 
     print(
-        f"处理完成：发现{len(xml_items)}个XML，匹配目标 {total}，成功更新 {success}，dry-run={args.dry_run}, 阈值={args.threshold:.2f}"
+        f"处理完成：发现{len(xml_items)}个XML，匹配目标 {total}，"
+        f"成功更新 {success}，dry-run={args.dry_run}, 阈值={args.threshold:.2f}"
     )
 
 
